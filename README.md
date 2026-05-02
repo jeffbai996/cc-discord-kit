@@ -147,7 +147,9 @@ Drop them into your Claude Code `settings.json` `hooks` block to enable. Tag for
 
 ### Save-intent gate
 
-The Stop hook only fires tag handlers when the user's most recent message contains a save-intent verb (`remember`, `save`, `memory`, `forget`, `delete`, `remove`, `nuke`, `edit`, `note`, `remind`, `journal`, `pin`, `stash`, `memo`). This prevents meta-discussion of the tag syntax from triggering real writes. To talk *about* the tags without firing them, use the `[MEMORY-EXAMPLE: ...]` / `[JOURNAL-EXAMPLE: ...]` form — those get stripped before scanning.
+The Stop hook only fires tag handlers when one of the user's last 5 messages contains a save-intent verb (`remember`, `save`, `memory`, `forget`, `delete`, `remove`, `nuke`, `edit`, `note`, `remind`, `journal`, `pin`, `stash`, `memo`). The 5-message window catches multi-turn save flows — e.g. user says "save our address" in turn N, replies with the actual address in turn N+1, assistant emits `[MEMORY:]` in response to N+1 — without it, the gate would scan only the address-only message and silently block.
+
+This prevents meta-discussion of the tag syntax from triggering real writes. To talk *about* the tags without firing them, use the `[MEMORY-EXAMPLE: ...]` / `[JOURNAL-EXAMPLE: ...]` form — those get stripped before scanning.
 
 ### Discord cards
 
@@ -157,7 +159,8 @@ When the assistant emits a tag in response to a Discord-originated save request,
 💾 Memory #42 saved
 type: feedback · name: Communication style · tags: comm, voice · about: jeff
 
-> Body text shown in blockquote, truncated past 600 chars.
+Body text in italics, truncated past 600 chars.
+Multi-paragraph bodies render naturally with blank lines between.
 ```
 
 Cards cover save (`💾`), edit (`✏️`), and delete (`🗑️`) for both memory and journal. The hook reads `DISCORD_BOT_TOKEN` from `MULTIAGENT_DISCORD_TOKEN` first, then falls back to `$CLAUDE_PLUGIN_STATE_DIR/.env` and `~/.claude/channels/discord/.env` so the same setup as the rest of your Discord integration works without extra config.

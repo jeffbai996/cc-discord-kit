@@ -100,17 +100,35 @@ def _extract_text(msg_obj: dict) -> str:
     return ""
 
 
-def read_last_messages(transcript_path: str) -> tuple[str, str]:
-    """Return (last_user_text, last_assistant_text) from the transcript jsonl."""
+# How many recent user messages the save-intent gate scans. Bumped from 1 →
+# 5 because real save flows often span turns: "save our address" (turn N) →
+# "1955 129th Ave" (turn N+1) → assistant emits [MEMORY:] (turn N+1's reply,
+# Stop fires here). With N=1 the gate only sees the address-only msg and
+# blocks. N=5 catches the "save" verb up to a few exchanges back.
+GATE_USER_LOOKBACK = 5
+
+
+def read_last_messages(transcript_path: str,
+                       user_lookback: int = GATE_USER_LOOKBACK
+                       ) -> tuple[str, str, str]:
+    """Return (last_user_text, last_assistant_text, recent_user_window).
+
+    `recent_user_window` joins the most recent `user_lookback` user messages
+    (oldest-first within the window) for save-intent gate scanning. Keeping
+    `last_user_text` separate so the Discord-origin parser still resolves the
+    LATEST user message's <channel> tag — that's the right card target even
+    when the save verb fired in an earlier turn.
+    """
     if not transcript_path or not os.path.exists(transcript_path):
-        return "", ""
+        return "", "", ""
     try:
         with open(transcript_path, "r") as f:
             lines = f.readlines()
     except OSError:
-        return "", ""
+        return "", "", ""
     last_user = ""
     last_assistant = ""
+    user_window: list[str] = []
     for line in reversed(lines):
         try:
             obj = json.loads(line)
@@ -119,11 +137,16 @@ def read_last_messages(transcript_path: str) -> tuple[str, str]:
         t = obj.get("type")
         if t == "assistant" and not last_assistant:
             last_assistant = _extract_text(obj)
-        elif t == "user" and not last_user:
-            last_user = _extract_text(obj)
-        if last_user and last_assistant:
+        elif t == "user":
+            text = _extract_text(obj)
+            if text:
+                if not last_user:
+                    last_user = text
+                if len(user_window) < user_lookback:
+                    user_window.append(text)
+        if last_assistant and len(user_window) >= user_lookback:
             break
-    return last_user, last_assistant
+    return last_user, last_assistant, "\n".join(reversed(user_window))
 
 
 def parse_kv_attrs(attr_str: str) -> dict:
@@ -344,9 +367,34 @@ def _truncate_body(text: str, lim: int = 600) -> str:
     return text[: lim - 1].rstrip() + "…"
 
 
+def _italicize_body(text: str) -> str:
+    """Wrap each non-empty line in `*...*` so the body renders italic on
+    Discord. Plain italic asterisk avoids the bare `>` glyphs the blockquote
+    variant left dangling on mobile when paragraphs had blank-line breaks.
+    Empty lines pass through as paragraph breaks.
+
+    Pre-existing `**bold**` markdown in the body composes naturally with the
+    outer italic — e.g. `**1955 ...**` becomes `***1955 ...***` which Discord
+    renders as bold-italic.
+    """
+    out: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            out.append("")
+        else:
+            out.append(f"*{stripped}*")
+    return "\n".join(out)
+
+
 def _format_card(action: dict) -> str | None:
     """Render one action as a Discord-friendly card. Returns None if the
-    action has no entry to render (e.g. delete of a missing id)."""
+    action has no entry to render (e.g. delete of a missing id).
+
+    Format conventions: header with emoji + bold; meta line with italics +
+    inline-code values; body in italics (no blockquote — `>` looked broken
+    on Discord mobile when bodies had paragraph breaks).
+    """
     kind = action.get("kind")
     if kind == "memory_saved":
         e = action.get("entry") or {}
@@ -354,23 +402,23 @@ def _format_card(action: dict) -> str | None:
             return None
         tags = ", ".join(e.get("tags") or []) or "—"
         about = ", ".join(e.get("about") or []) or "—"
-        body = _truncate_body(e.get("text", "")).replace("\n", "\n> ")
+        body = _italicize_body(_truncate_body(e.get("text", "")))
         return (
             f"💾 **Memory #{e['id']} saved**\n"
             f"*type:* `{e.get('type','?')}` · "
             f"*name:* `{e.get('name','—') or '—'}` · "
             f"*tags:* `{tags}` · *about:* `{about}`\n\n"
-            f"> {body}"
+            f"{body}"
         )
     if kind == "memory_edited":
         before = action.get("before") or {}
         after = action.get("after") or {}
         mid = action.get("id")
-        body = _truncate_body(after.get("text", "")).replace("\n", "\n> ")
+        body = _italicize_body(_truncate_body(after.get("text", "")))
         return (
             f"✏️ **Memory #{mid} edited**\n"
             f"*name:* `{after.get('name', before.get('name', '—')) or '—'}`\n\n"
-            f"> {body}"
+            f"{body}"
         )
     if kind == "memory_deleted":
         before = action.get("before") or {}
@@ -385,11 +433,11 @@ def _format_card(action: dict) -> str | None:
         if not e.get("id"):
             return None
         tags = ", ".join(e.get("tags") or []) or "—"
-        body = _truncate_body(e.get("text", "")).replace("\n", "\n> ")
+        body = _italicize_body(_truncate_body(e.get("text", "")))
         return (
             f"📓 **Journal #{e['id']} added**\n"
             f"*tags:* `{tags}`\n\n"
-            f"> {body}"
+            f"{body}"
         )
     if kind == "journal_deleted":
         before = action.get("before") or {}
@@ -477,16 +525,19 @@ def main() -> int:
         return 0
 
     transcript = payload.get("transcript_path", "")
-    user_text, assistant_text = read_last_messages(transcript)
+    user_text, assistant_text, user_window = read_last_messages(transcript)
     if not assistant_text:
         return 0
 
-    if not user_asked_to_save(user_text):
+    # Gate scans the last GATE_USER_LOOKBACK user messages joined, not just
+    # the latest. user_text stays the latest for Discord-origin parsing —
+    # that's the right card target.
+    if not user_asked_to_save(user_window):
         if MEM_RE.search(assistant_text) or JOU_RE.search(assistant_text) \
                 or MEM_DEL_RE.search(assistant_text) or MEM_EDIT_RE.search(assistant_text) \
                 or JOU_DEL_RE.search(assistant_text):
-            log(f"gated bot={BOT_NAME} (no save-intent in user msg) "
-                f"user={user_text[:80]!r}")
+            log(f"gated bot={BOT_NAME} (no save-intent in user window N={GATE_USER_LOOKBACK}) "
+                f"latest_user={user_text[:80]!r}")
         return 0
 
     try:
