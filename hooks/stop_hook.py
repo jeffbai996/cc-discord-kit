@@ -145,17 +145,14 @@ JOU_RE = re.compile(r"\[JOURNAL(?:\s+([^:\]]+?))?:\s*(.+?)\]", re.DOTALL)
 JOU_DEL_RE = re.compile(r"\[JOURNAL_DELETE:\s*(\d+)\]")
 
 SAVE_KEYWORDS_RE = re.compile(
-    r"\b(remember|memori[sz]e|forget|"
-    r"save\s+(?:this|that|it|to|the)|"
-    r"note\s+(?:this|that|it|down|to)|"
-    r"pin\s+(?:this|that|it)|"
-    r"stash\s+(?:this|that|it)|"
-    r"remind\s+me|"
-    r"journal\s+(?:this|that|it|entry)|"
-    r"add\s+(?:a\s+)?(?:memory|journal|note|entry)|"
-    r"delete\s+(?:memory|#\d+|entry|journal)|"
-    r"remove\s+(?:memory|#\d+|entry|journal)|"
-    r"edit\s+(?:memory|#\d+|entry))\b",
+    # Bare-verb gate matching ticker-tape (chat.py:1054) — any of these words
+    # in the user's last message is enough. The earlier verb+noun-adjacency
+    # variant kept gating valid requests like "delete that memory" or "nuke
+    # memory 88" because of intervening words. Bare-verb is permissive but
+    # the EXAMPLE_RE pre-strip and the [MEMORY:]/[JOURNAL:] tag form keep the
+    # false-positive rate effectively zero in practice.
+    r"\b(remember|memori[sz]e|save|memo|memory|forget|"
+    r"delete|remove|nuke|edit|note|remind|journal|pin|stash)\b",
     re.I,
 )
 
@@ -177,9 +174,22 @@ def _attr_list(attrs: dict, key: str) -> list[str]:
     return [v.strip() for v in val.split(",") if v.strip()]
 
 
-def process_text(text: str) -> dict:
+def process_text(text: str) -> tuple[dict, list[dict]]:
+    """Run all tag handlers, returning (counts, actions).
+
+    `actions` is the per-event payload list used by the Discord card poster:
+      {kind: 'memory_saved', entry: {...}}        — full saved entry
+      {kind: 'memory_edited', id: int, before: dict|None, after: dict|None}
+      {kind: 'memory_deleted', before: dict|None}  — captured before removal
+      {kind: 'journal_added', entry: {...}}
+      {kind: 'journal_deleted', before: dict|None}
+
+    For deletes we look up the entry BEFORE calling remove so the card can
+    show what was actually removed (id alone is too cryptic).
+    """
     counts = {"saved": 0, "edited": 0, "deleted": 0,
               "journaled": 0, "journal_deleted": 0}
+    actions: list[dict] = []
 
     text = EXAMPLE_RE.sub("", text)
 
@@ -188,7 +198,7 @@ def process_text(text: str) -> dict:
         if not body:
             continue
         attrs = parse_kv_attrs(attr_str)
-        store.save_memory(
+        entry = store.save_memory(
             body,
             type=attrs.get("type", "feedback"),
             name=attrs.get("name", ""),
@@ -197,15 +207,26 @@ def process_text(text: str) -> dict:
             bot=_attr_list(attrs, "bot") or None,
         )
         counts["saved"] += 1
+        actions.append({"kind": "memory_saved", "entry": entry})
 
     for m in MEM_EDIT_RE.finditer(text):
         mid, new = int(m.group(1)), m.group(2).strip()
+        before = _find_memory(mid)
         if store.edit_memory(mid, new):
             counts["edited"] += 1
+            actions.append({
+                "kind": "memory_edited",
+                "id": mid,
+                "before": before,
+                "after": _find_memory(mid),
+            })
 
     for m in MEM_DEL_RE.finditer(text):
-        if store.remove_memory(int(m.group(1))):
+        mid = int(m.group(1))
+        before = _find_memory(mid)
+        if store.remove_memory(mid):
             counts["deleted"] += 1
+            actions.append({"kind": "memory_deleted", "before": before})
 
     for m in JOU_RE.finditer(text):
         attr_str, body = m.group(1) or "", m.group(2).strip()
@@ -213,15 +234,238 @@ def process_text(text: str) -> dict:
             continue
         attrs = parse_kv_attrs(attr_str)
         tags = _attr_list(attrs, "tags")
-        store.add_journal(body, source=attrs.get("source", f"hook:{HOST}"),
-                          actor=attrs.get("actor", BOT_NAME), tags=tags)
+        entry = store.add_journal(body, source=attrs.get("source", f"hook:{HOST}"),
+                                  actor=attrs.get("actor", BOT_NAME), tags=tags)
         counts["journaled"] += 1
+        actions.append({"kind": "journal_added", "entry": entry})
 
     for m in JOU_DEL_RE.finditer(text):
-        if store.remove_journal(int(m.group(1))):
+        jid = int(m.group(1))
+        before = _find_journal(jid)
+        if store.remove_journal(jid):
             counts["journal_deleted"] += 1
+            actions.append({"kind": "journal_deleted", "before": before})
 
-    return counts
+    return counts, actions
+
+
+def _find_memory(mid: int) -> dict | None:
+    """Lookup memory by id from the live store. Returns None on miss."""
+    try:
+        for m in store.load_memories():
+            if m.get("id") == mid:
+                return m
+    except Exception:
+        return None
+    return None
+
+
+def _find_journal(jid: int) -> dict | None:
+    try:
+        for j in store.load_journal():
+            if j.get("id") == jid:
+                return j
+    except Exception:
+        return None
+    return None
+
+
+# ─────────── Discord card poster ───────────
+#
+# When a save/edit/delete/journal action fires, post a rendered confirmation
+# card to the Discord channel where the user requested it. Replaces the bot's
+# in-reply rendering, which was unreliable (depended on the bot remembering
+# to render). Failure modes (no Discord origin, no token, HTTP error) all
+# silently log + skip — the action already landed in the store.
+#
+# Multiagent-tools agnostic about which bot. Token resolution order:
+#   $MULTIAGENT_DISCORD_TOKEN   — explicit override
+#   $CLAUDE_PLUGIN_STATE_DIR/.env DISCORD_BOT_TOKEN
+#   $CLAUDE_CONFIG_DIR/channels/discord/.env DISCORD_BOT_TOKEN
+#   ~/.claude/channels/discord/.env DISCORD_BOT_TOKEN
+
+_CHANNEL_TAG_RE = re.compile(
+    r'<channel\s+source=["\'](?:plugin:discord:discord|discord)["\']'
+    r'[^>]*?chat_id=["\']([^"\']+)["\']'
+    r'[^>]*?message_id=["\']([^"\']+)["\']',
+    re.IGNORECASE,
+)
+
+
+def _parse_discord_origin(user_text: str) -> tuple[str, str] | None:
+    """Last <channel> tag in user_text → (chat_id, message_id), or None.
+
+    Last == newest in the user msg (plugin batches multiple inbound messages
+    into one user_text in document order). The latest is the message the
+    user actually meant when they said "save that".
+    """
+    if not user_text:
+        return None
+    matches = list(_CHANNEL_TAG_RE.finditer(user_text))
+    if not matches:
+        return None
+    m = matches[-1]
+    return m.group(1), m.group(2)
+
+
+def _read_bot_token() -> str | None:
+    """Read DISCORD_BOT_TOKEN. See module-level docstring for resolution order."""
+    explicit = os.environ.get("MULTIAGENT_DISCORD_TOKEN", "").strip()
+    if explicit:
+        return explicit
+
+    env_path: str | None = None
+    plugin_dir = os.environ.get("CLAUDE_PLUGIN_STATE_DIR", "")
+    if plugin_dir:
+        env_path = os.path.join(plugin_dir, ".env")
+    elif os.environ.get("CLAUDE_CONFIG_DIR"):
+        env_path = os.path.join(os.environ["CLAUDE_CONFIG_DIR"], "channels", "discord", ".env")
+    else:
+        env_path = os.path.expanduser("~/.claude/channels/discord/.env")
+
+    if not env_path or not os.path.exists(env_path):
+        return None
+    try:
+        with open(env_path) as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("DISCORD_BOT_TOKEN="):
+                    return line.split("=", 1)[1].strip().strip('"').strip("'")
+    except OSError:
+        return None
+    return None
+
+
+def _truncate_body(text: str, lim: int = 600) -> str:
+    """Trim long bodies for the card. Cards are visible-confirmation, not full
+    reproduction — link to the web UI for full content."""
+    if len(text) <= lim:
+        return text
+    return text[: lim - 1].rstrip() + "…"
+
+
+def _format_card(action: dict) -> str | None:
+    """Render one action as a Discord-friendly card. Returns None if the
+    action has no entry to render (e.g. delete of a missing id)."""
+    kind = action.get("kind")
+    if kind == "memory_saved":
+        e = action.get("entry") or {}
+        if not e.get("id"):
+            return None
+        tags = ", ".join(e.get("tags") or []) or "—"
+        about = ", ".join(e.get("about") or []) or "—"
+        body = _truncate_body(e.get("text", "")).replace("\n", "\n> ")
+        return (
+            f"💾 **Memory #{e['id']} saved**\n"
+            f"*type:* `{e.get('type','?')}` · "
+            f"*name:* `{e.get('name','—') or '—'}` · "
+            f"*tags:* `{tags}` · *about:* `{about}`\n\n"
+            f"> {body}"
+        )
+    if kind == "memory_edited":
+        before = action.get("before") or {}
+        after = action.get("after") or {}
+        mid = action.get("id")
+        body = _truncate_body(after.get("text", "")).replace("\n", "\n> ")
+        return (
+            f"✏️ **Memory #{mid} edited**\n"
+            f"*name:* `{after.get('name', before.get('name', '—')) or '—'}`\n\n"
+            f"> {body}"
+        )
+    if kind == "memory_deleted":
+        before = action.get("before") or {}
+        if not before:
+            return None
+        return (
+            f"🗑️ **Memory #{before.get('id', '?')} deleted**\n"
+            f"*was:* `{before.get('type','?')}` · `{before.get('name','—') or '—'}`"
+        )
+    if kind == "journal_added":
+        e = action.get("entry") or {}
+        if not e.get("id"):
+            return None
+        tags = ", ".join(e.get("tags") or []) or "—"
+        body = _truncate_body(e.get("text", "")).replace("\n", "\n> ")
+        return (
+            f"📓 **Journal #{e['id']} added**\n"
+            f"*tags:* `{tags}`\n\n"
+            f"> {body}"
+        )
+    if kind == "journal_deleted":
+        before = action.get("before") or {}
+        if not before:
+            return None
+        return f"🗑️ **Journal #{before.get('id','?')} deleted**"
+    return None
+
+
+def _post_discord_message(token: str, channel_id: str, content: str,
+                          reply_to: str | None = None) -> bool:
+    """POST /channels/<id>/messages. Best-effort, single-shot, no retry — if
+    the network's flaky, the user sees no card; the action already landed in
+    the store. The log carries the failure for triage."""
+    import urllib.error
+    import urllib.request
+    body: dict = {
+        "content": content,
+        "allowed_mentions": {"parse": []},
+    }
+    if reply_to:
+        body["message_reference"] = {
+            "message_id": reply_to,
+            "fail_if_not_exists": False,
+        }
+    data = json.dumps(body).encode("utf-8")
+    url = f"https://discord.com/api/v10/channels/{channel_id}/messages"
+    req = urllib.request.Request(
+        url,
+        data=data,
+        method="POST",
+        headers={
+            "Authorization": f"Bot {token}",
+            "Content-Type": "application/json",
+            "User-Agent": "multiagent-stop-hook (cards, 1.0)",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=4) as resp:
+            return 200 <= resp.status < 300
+    except urllib.error.HTTPError as e:
+        try:
+            err_body = e.read()[:200].decode("utf-8", "replace")
+        except Exception:
+            err_body = ""
+        log(f"discord POST {channel_id} HTTP {e.code}: {err_body!r}")
+        return False
+    except Exception as e:
+        log(f"discord POST {channel_id} failed: {e}")
+        return False
+
+
+def post_action_cards(actions: list[dict], user_text: str) -> int:
+    """For each action with renderable content, post a card to the Discord
+    channel the user requested in. Returns count posted."""
+    if not actions:
+        return 0
+    origin = _parse_discord_origin(user_text)
+    if not origin:
+        # Stop hook fires for all assistant turns; only Discord-originated
+        # save requests get cards. Terminal saves are silent (the CLI itself
+        # already prints "Saved #N").
+        return 0
+    chat_id, msg_id = origin
+    token = _read_bot_token()
+    if not token:
+        log("discord card skipped: no DISCORD_BOT_TOKEN found")
+        return 0
+    posted = 0
+    for action in actions:
+        card = _format_card(action)
+        if not card:
+            continue
+        if _post_discord_message(token, chat_id, card, reply_to=msg_id):
+            posted += 1
+    return posted
 
 
 def main() -> int:
@@ -246,13 +490,22 @@ def main() -> int:
         return 0
 
     try:
-        counts = process_text(assistant_text)
+        counts, actions = process_text(assistant_text)
     except Exception:
         log(f"process_text crashed:\n{traceback.format_exc()}")
         return 0
 
     if any(counts.values()):
         log(f"{payload.get('hook_event_name', '?')} bot={BOT_NAME} {counts}")
+
+    # Post Discord confirmation cards for each action when the request came
+    # from a Discord channel. Best-effort — never block the hook on this.
+    try:
+        posted = post_action_cards(actions, user_text)
+        if posted:
+            log(f"posted {posted} discord card{'s' if posted != 1 else ''}")
+    except Exception:
+        log(f"post_action_cards crashed:\n{traceback.format_exc()}")
 
     return 0
 

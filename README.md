@@ -53,7 +53,7 @@ All env vars optional unless noted.
 | `MULTIAGENT_HOST` / `MULTIAGENT_PORT` | `server.py` | Flask bind. Default `127.0.0.1:5005`. **Don't bind to 0.0.0.0** — this is a personal store, not a public service. |
 | `MULTIAGENT_URL_PREFIX` | `server.py` | for hosting under a path (e.g. `/multiagent-tools` behind a reverse proxy). |
 | `MULTIAGENT_BOT` | `cli.py`, hooks | explicit agent identity. Otherwise auto-detected from `CLAUDE_CONFIG_DIR` last segment, then hostname. |
-| `MULTIAGENT_DISCORD_TOKEN` | `digest.py`, `discord_handler.py` | bot token for the discord side. |
+| `MULTIAGENT_DISCORD_TOKEN` | `digest.py`, `discord_handler.py`, `hooks/stop_hook.py` | bot token for the discord side. `stop_hook` uses it to post save/edit/delete confirmation cards back to the originating channel. |
 | `MULTIAGENT_GUILD_IDS` | `discord_handler.py` | optional CSV of Discord guild IDs for instant per-server slash command sync. Without this, slash commands sync globally (~1hr propagation). |
 | `MULTIAGENT_DIGEST_CHANNELS` | `digest.py` | comma-separated `name:id` pairs for digest pull. |
 | `MULTIAGENT_SETTINGS_PATHS` | `inventory.py` | optional CSV of extra Claude Code `settings.json` paths to probe for hook chains. |
@@ -133,6 +133,7 @@ The `hooks/` dir has Stop, PreCompact, UserPromptSubmit, and SessionStart hooks 
 - scan assistant turns for `[MEMORY: ...]` and `[JOURNAL: ...]` tags and route them to `store.add_memory` / `store.add_journal`
 - inject the most recent N memory entries into UserPromptSubmit context
 - write a "what was the last conversation about" snapshot before context compaction
+- post visible save/edit/delete **confirmation cards** back to Discord when the request originated there (requires `MULTIAGENT_DISCORD_TOKEN`)
 
 Drop them into your Claude Code `settings.json` `hooks` block to enable. Tag format examples:
 
@@ -140,15 +141,28 @@ Drop them into your Claude Code `settings.json` `hooks` block to enable. Tag for
 [MEMORY: prefer integration tests over unit tests for this codebase]
 [MEMORY type=project name="rebrand" tags=infra: kicked off the rename ...]
 [JOURNAL: hit 1,000 commits today]
+[MEMORY_DELETE: 42]
+[MEMORY_EDIT: 42 | new body text]
 ```
 
-**Save-intent gating.** The Stop hook only honors these tags when the most
-recent user message contains a save-intent verb (`remember`, `save this`,
-`note that`, `pin this`, `journal this`, `add memory`, etc.). This prevents
-meta-discussion of tag syntax from triggering real writes. To talk *about*
-the syntax without firing it, use `[MEMORY-EXAMPLE: ...]` /
-`[JOURNAL-EXAMPLE: ...]` — anything matching the `-EXAMPLE` variant is
-stripped before scanning.
+### Save-intent gate
+
+The Stop hook only fires tag handlers when the user's most recent message contains a save-intent verb (`remember`, `save`, `memory`, `forget`, `delete`, `remove`, `nuke`, `edit`, `note`, `remind`, `journal`, `pin`, `stash`, `memo`). This prevents meta-discussion of the tag syntax from triggering real writes. To talk *about* the tags without firing them, use the `[MEMORY-EXAMPLE: ...]` / `[JOURNAL-EXAMPLE: ...]` form — those get stripped before scanning.
+
+### Discord cards
+
+When the assistant emits a tag in response to a Discord-originated save request, the Stop hook posts a rendered confirmation card to the same channel as a reply:
+
+```
+💾 Memory #42 saved
+type: feedback · name: Communication style · tags: comm, voice · about: jeff
+
+> Body text shown in blockquote, truncated past 600 chars.
+```
+
+Cards cover save (`💾`), edit (`✏️`), and delete (`🗑️`) for both memory and journal. The hook reads `DISCORD_BOT_TOKEN` from `MULTIAGENT_DISCORD_TOKEN` first, then falls back to `$CLAUDE_PLUGIN_STATE_DIR/.env` and `~/.claude/channels/discord/.env` so the same setup as the rest of your Discord integration works without extra config.
+
+If no Discord origin is in the user message (e.g. the save happened in a terminal session), no card is posted — the CLI's own `Saved #N` output is the confirmation in that case.
 
 ## Discord bot
 
