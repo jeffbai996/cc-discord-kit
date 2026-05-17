@@ -486,6 +486,27 @@ def trash_restore():
     return redirect(url_for("trash"))
 
 
+@app.route("/trash/purge", methods=["POST"])
+def trash_purge():
+    """Permanently remove ONE trash entry from edits.jsonl.
+
+    Distinct from restore: restore reinstates the record, purge wipes the
+    delete-history line so the record is unrecoverable. Matches on
+    (kind, id, ts) so the right line is targeted even if the same id was
+    deleted multiple times historically.
+    """
+    ts = request.form.get("ts", "")
+    kind = request.form.get("kind", "")
+    target_id = int(request.form.get("id", "0"))
+    if not ts:
+        abort(400)
+    for h in history.load_recent_deletes(limit=500):
+        if h.get("ts") == ts and h.get("kind") == kind and h.get("id") == target_id:
+            history.purge_history_entry(h)
+            break
+    return redirect(url_for("trash"))
+
+
 # ─────────────────────────── JSON API ───────────────────────────
 
 

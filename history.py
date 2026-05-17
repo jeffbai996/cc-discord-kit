@@ -219,6 +219,62 @@ def revert_edit(history_entry: dict) -> bool:
     return edit_journal(entry_id, **_record_to_edit_kwargs_journal(before))
 
 
+def purge_history_entry(history_entry: dict) -> bool:
+    """Permanently remove ONE history entry from edits.jsonl.
+
+    Used by the trash UI's "delete forever" button: matches the entry by
+    (kind, id, ts) and rewrites the file without it. The matched line is
+    gone for good — restore_deleted can no longer find it.
+
+    Atomic write (temp + rename) so concurrent appenders don't see a
+    partial file. Returns True if a line was removed.
+    """
+    target_kind = history_entry.get("kind")
+    target_id = history_entry.get("id")
+    target_ts = history_entry.get("ts")
+    if target_kind not in VALID_KINDS or not isinstance(target_id, int) or not target_ts:
+        return False
+
+    if not os.path.exists(EDITS_FILE):
+        return False
+    try:
+        with open(EDITS_FILE, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+    except OSError as e:
+        log.warning("purge: failed to read %s: %s", EDITS_FILE, e)
+        return False
+
+    kept: list[str] = []
+    removed = 0
+    for line in lines:
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            kept.append(line)
+            continue
+        if (
+            obj.get("kind") == target_kind
+            and obj.get("id") == target_id
+            and obj.get("ts") == target_ts
+        ):
+            removed += 1
+            continue
+        kept.append(line)
+
+    if removed == 0:
+        return False
+
+    tmp = EDITS_FILE + ".tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.writelines(kept)
+        os.replace(tmp, EDITS_FILE)
+    except OSError as e:
+        log.warning("purge: failed to rewrite %s: %s", EDITS_FILE, e)
+        return False
+    return True
+
+
 def restore_deleted(history_entry: dict) -> dict | None:
     """Re-add a deleted record. Reuses original id if free, else assigns a new one
     and stamps `restored_from_id` for traceability.
