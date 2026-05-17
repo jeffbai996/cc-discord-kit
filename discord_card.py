@@ -69,35 +69,44 @@ def format_card(action: dict) -> str | None:
         e = action.get("entry") or {}
         if not e.get("id"):
             return None
+        title = e.get("name") or ""
+        # Name moves into the bold prose header — easier to spot on phone
+        # without expanding the code block. Keep type/tags/about inside.
         meta = [
             ("type", e.get("type", "?")),
-            ("name", e.get("name", "") or "—"),
             ("tags", ", ".join(e.get("tags") or []) or "—"),
             ("about", ", ".join(e.get("about") or []) or "—"),
         ]
         body = _truncate_body(e.get("text", "")) or None
-        return f"💾 **Memory #{e['id']} saved**\n" + _render_card_block(meta, body)
+        head = f"💾 **Memory #{e['id']} saved**"
+        if title:
+            head += f" — {title}"
+        return head + "\n" + _render_card_block(meta, body)
     if kind == "memory_edited":
         before = action.get("before") or {}
         after = action.get("after") or {}
         mid = action.get("id")
+        title = after.get("name") or before.get("name") or ""
         meta = [
             ("type", after.get("type", before.get("type", "?"))),
-            ("name", after.get("name", before.get("name", "")) or "—"),
             ("tags", ", ".join(after.get("tags") or before.get("tags") or []) or "—"),
             ("about", ", ".join(after.get("about") or before.get("about") or []) or "—"),
         ]
         body = _truncate_body(after.get("text", "")) or None
-        return f"✏️ **Memory #{mid} edited**\n" + _render_card_block(meta, body)
+        head = f"✏️ **Memory #{mid} edited**"
+        if title:
+            head += f" — {title}"
+        return head + "\n" + _render_card_block(meta, body)
     if kind == "memory_deleted":
         before = action.get("before") or {}
         if not before:
             return None
-        meta = [
-            ("type", before.get("type", "?")),
-            ("name", before.get("name", "") or "—"),
-        ]
-        return f"🗑️ **Memory #{before.get('id', '?')} deleted**\n" + _render_card_block(meta, None)
+        title = before.get("name") or ""
+        meta = [("type", before.get("type", "?"))]
+        head = f"🗑️ **Memory #{before.get('id', '?')} deleted**"
+        if title:
+            head += f" — {title}"
+        return head + "\n" + _render_card_block(meta, None)
     if kind == "journal_added":
         e = action.get("entry") or {}
         if not e.get("id"):
