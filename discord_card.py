@@ -22,10 +22,17 @@ from __future__ import annotations
 
 import json
 import os
+import textwrap
 import urllib.error
 import urllib.request
 
 CARD_BODY_LIMIT = 600
+
+# Discord on a phone shows ~30-36 monospace chars before code blocks
+# horizontal-scroll. 32 is the conservative target — nothing wider wraps,
+# the rule line stays inside the visible viewport, and desktop still
+# looks fine since fenced blocks aren't full-width-padded.
+MOBILE_WIDTH = 32
 
 
 def _truncate_body(text: str, lim: int = CARD_BODY_LIMIT) -> str:
@@ -34,19 +41,63 @@ def _truncate_body(text: str, lim: int = CARD_BODY_LIMIT) -> str:
     return text[: lim - 1].rstrip() + "…"
 
 
+def _wrap_value(value: str, indent: int, width: int = MOBILE_WIDTH) -> list[str]:
+    """Word-wrap `value` so the first line fits in `width - indent` chars and
+    continuation lines are prefixed with `indent` spaces (hanging indent).
+
+    Single tokens longer than the available width are placed on their own line
+    without breaking — overflowing one row beats truncating mid-identifier.
+    """
+    avail = max(1, width - indent)
+    pieces = textwrap.wrap(
+        value,
+        width=avail,
+        break_long_words=False,
+        break_on_hyphens=False,
+    ) or [value]
+    out = [pieces[0]]
+    for cont in pieces[1:]:
+        out.append(" " * indent + cont)
+    return out
+
+
+def _wrap_body(body: str, width: int = MOBILE_WIDTH) -> str:
+    """Wrap each user-authored line independently so paragraph breaks survive."""
+    out: list[str] = []
+    for line in body.splitlines() or [""]:
+        if not line.strip():
+            out.append("")
+            continue
+        wrapped = textwrap.wrap(
+            line,
+            width=width,
+            break_long_words=False,
+            break_on_hyphens=False,
+        ) or [line]
+        out.extend(wrapped)
+    return "\n".join(out)
+
+
 def _render_card_block(meta: list[tuple[str, str]], body: str | None) -> str:
-    """Render meta-pairs + optional body inside a fenced code block."""
+    """Render meta-pairs + optional body inside a fenced code block.
+
+    Lines are wrapped to MOBILE_WIDTH so phone Discord doesn't horizontal-scroll.
+    Meta values get a hanging indent so wrapped lines align under the value
+    column rather than the key column.
+    """
     if not meta and not body:
         return ""
     pad = max((len(k) for k, _ in meta), default=0) + 2  # +2 for `: ` after key
     lines: list[str] = []
     for key, val in meta:
-        lines.append(f"{(key + ':').ljust(pad)}{val}")
+        head = (key + ":").ljust(pad)
+        wrapped = _wrap_value(val, indent=pad)
+        lines.append(head + wrapped[0])
+        lines.extend(wrapped[1:])
     if body:
         if lines:
-            rule_width = max(len(line) for line in lines)
-            lines.append("─" * min(rule_width, 50))
-        lines.append(body)
+            lines.append("─" * MOBILE_WIDTH)
+        lines.append(_wrap_body(body))
     return "```\n" + "\n".join(lines) + "\n```"
 
 
