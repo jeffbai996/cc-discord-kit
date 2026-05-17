@@ -887,10 +887,23 @@ def _highlight(text: str, query: str | None):
     return Markup("").join(out)
 
 
+# Display-only relabel of memory types. Store still uses raw "user"/"feedback"/etc.
+# UI shows "profile" instead of "user" because the user-type tag is used for
+# profiles of people in general, not the bot's caller.
+_TYPE_DISPLAY_LABEL = {
+    "user": "profile",
+}
+
+
+def _type_label(value: str | None) -> str:
+    return _TYPE_DISPLAY_LABEL.get(value or "", value or "—")
+
+
 # Make helpers available in templates
 app.jinja_env.globals["parse_csv"] = _parse_csv
 app.jinja_env.filters["highlight"] = _highlight
 app.jinja_env.filters["render_md"] = lambda text: rendering.render_body(text, _url_prefix)
+app.jinja_env.filters["type_label"] = _type_label
 
 
 def main() -> None:

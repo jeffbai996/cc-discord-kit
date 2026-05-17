@@ -7,7 +7,7 @@
   <select name="type">
     <option value="">all types</option>
     {% for t in types %}
-      <option value="{{ t }}" {% if t == type_filter %}selected{% endif %}>{{ t }}</option>
+      <option value="{{ t }}" {% if t == type_filter %}selected{% endif %}>{{ t | type_label }}</option>
     {% endfor %}
   </select>
   <select name="about">
@@ -119,7 +119,7 @@
           </div>
         {% endif %}
       </td>
-      <td><span class="pill type-{{ m.type or 'default' }}">{{ m.type or '—' }}</span></td>
+      <td><span class="pill type-{{ m.type or 'default' }}">{{ m.type | type_label }}</span></td>
       <td>
         <a class="entry" href="{{ url_for('memory_detail', memory_id=m.id) }}">
           {{ (m.name or m.text[:80]) | highlight(q) }}

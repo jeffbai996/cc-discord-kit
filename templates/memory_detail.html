@@ -9,7 +9,7 @@
     {% if m.pinned %}<span class="pin-badge" title="pinned"><svg class="pin-icon"><use href="#i-pin"/></svg></span>{% endif %}
   </h2>
   <div class="meta">
-    <span class="pill type-{{ m.type or 'default' }}">{{ m.type or '—' }}</span>
+    <span class="pill type-{{ m.type or 'default' }}">{{ m.type | type_label }}</span>
     {% if m.about %}
       <span class="sep">·</span>
       {% for a in m.about %}<a class="pill" href="{{ url_for('index', about=a) }}">{{ a }}</a>{% endfor %}
@@ -32,7 +32,7 @@
       <ul>
       {% for b in backlinks.memories %}
         <li>
-          <span class="pill type-{{ b.type or 'default' }}">{{ b.type }}</span>
+          <span class="pill type-{{ b.type or 'default' }}">{{ b.type | type_label }}</span>
           <a class="entry" href="{{ url_for('memory_detail', memory_id=b.id) }}">#<strong>{{ b.id }}</strong> {{ b.name or '(untitled)' }}</a>
         </li>
       {% endfor %}
@@ -60,7 +60,7 @@
     <label>type</label>
     <select name="type">
       {% for t in valid_types %}
-        <option value="{{ t }}" {% if m.type == t %}selected{% endif %}>{{ t }}</option>
+        <option value="{{ t }}" {% if m.type == t %}selected{% endif %}>{{ t | type_label }}</option>
       {% endfor %}
     </select>
 

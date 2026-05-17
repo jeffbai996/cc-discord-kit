@@ -26,7 +26,7 @@
       <ul>
       {% for b in backlinks.memories %}
         <li>
-          <span class="pill type-{{ b.type or 'default' }}">{{ b.type }}</span>
+          <span class="pill type-{{ b.type or 'default' }}">{{ b.type | type_label }}</span>
           <a class="entry" href="{{ url_for('memory_detail', memory_id=b.id) }}">#<strong>{{ b.id }}</strong> {{ b.name or '(untitled)' }}</a>
         </li>
       {% endfor %}

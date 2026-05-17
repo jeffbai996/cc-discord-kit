@@ -12,7 +12,7 @@
     <label>type</label>
     <select name="type">
       {% for t in valid_types %}
-        <option value="{{ t }}" {% if t == 'feedback' %}selected{% endif %}>{{ t }}</option>
+        <option value="{{ t }}" {% if t == 'feedback' %}selected{% endif %}>{{ t | type_label }}</option>
       {% endfor %}
     </select>
 

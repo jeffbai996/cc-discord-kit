@@ -31,7 +31,7 @@
     {% for m in others %}
       <tr data-search="#{{ m.id }} {{ (m.name or '')|lower }} {{ (m.text or '')[:80]|lower }}">
         <td class="id-cell"><a class="entry" href="{{ url_for('memory_detail', memory_id=m.id) }}">#<strong>{{ m.id }}</strong></a></td>
-        <td><span class="pill type-{{ m.type or 'default' }}">{{ m.type or '—' }}</span></td>
+        <td><span class="pill type-{{ m.type or 'default' }}">{{ m.type | type_label }}</span></td>
         <td>
           <a class="entry" href="{{ url_for('memory_detail', memory_id=m.id) }}">
             {{ m.name or m.text[:80] }}

@@ -14,7 +14,7 @@
     <section class="merge-pane">
       <h3>loser — #<strong>{{ loser.id }}</strong> <span class="muted" style="font-weight: 400;">(will be moved to trash)</span></h3>
       <div class="meta">
-        <span class="pill type-{{ loser.type or 'default' }}">{{ loser.type or '—' }}</span>
+        <span class="pill type-{{ loser.type or 'default' }}">{{ loser.type | type_label }}</span>
         {% if loser.tags %}{% for t in loser.tags %}<span class="pill">{{ t }}</span>{% endfor %}{% endif %}
       </div>
       <div class="body-render markdown-body merge-body">{{ loser.text | render_md }}</div>
@@ -23,7 +23,7 @@
     <section class="merge-pane">
       <h3>winner — #<strong>{{ winner.id }}</strong> <span class="muted" style="font-weight: 400;">(will be updated)</span></h3>
       <div class="meta">
-        <span class="pill type-{{ winner.type or 'default' }}">{{ winner.type or '—' }}</span>
+        <span class="pill type-{{ winner.type or 'default' }}">{{ winner.type | type_label }}</span>
         {% if winner.tags %}{% for t in winner.tags %}<span class="pill">{{ t }}</span>{% endfor %}{% endif %}
       </div>
       <div class="body-render markdown-body merge-body">{{ winner.text | render_md }}</div>
@@ -47,7 +47,7 @@
         <ul>
         {% for b in backlinks.memories %}
           <li>
-            <span class="pill type-{{ b.type or 'default' }}">{{ b.type }}</span>
+            <span class="pill type-{{ b.type or 'default' }}">{{ b.type | type_label }}</span>
             <a class="entry" href="{{ url_for('memory_detail', memory_id=b.id) }}">#<strong>{{ b.id }}</strong> {{ b.name or '(untitled)' }}</a>
           </li>
         {% endfor %}
