@@ -45,6 +45,17 @@ JOURNAL_CAP = 1000
 
 VALID_TYPES = {"user", "feedback", "project", "reference"}
 
+# Strip leading rendered-header lines that agents sometimes paste back when
+# round-tripping content through `multiagent-tools memory show`. This keeps
+# metadata displays from compounding into the stored body across edits.
+_RENDERED_HEADER_RE = re.compile(
+    r'^(About: [^\n]*\n+Saved: [^\n]*\n+)+', re.MULTILINE
+)
+
+
+def _strip_rendered_header(text: str) -> str:
+    return _RENDERED_HEADER_RE.sub('', text.lstrip())
+
 
 class JsonStore:
     """Persistent list-of-dicts store with auto-incrementing IDs.
@@ -167,7 +178,7 @@ def save_memory(text: str, *, type: str = "feedback", name: str = "",
         "type": type,
         "name": name.strip(),
         "tags": list(tags) if tags else [],
-        "text": text.strip(),
+        "text": _strip_rendered_header(text.strip()),
         "about": list(about) if about else [],
     }
     if bot is not None:
@@ -183,7 +194,7 @@ def edit_memory(memory_id: int, text: str | None = None, *,
                 pinned: bool | None = None) -> bool:
     fields: dict = {}
     if text is not None:
-        fields["text"] = text.strip()
+        fields["text"] = _strip_rendered_header(text.strip())
     if name is not None:
         fields["name"] = name.strip()
     if type is not None and type in VALID_TYPES:
@@ -247,13 +258,20 @@ def filter_memories(entries: list[dict] | None = None, *,
     return out
 
 
-def format_memories_for_prompt(*, bot: str | None = None) -> str:
+def format_memories_for_prompt(*, bot: str | None = None,
+                               types: list[str] | None = None,
+                               exclude_types: list[str] | None = None) -> str:
     """Full memory dump — for SessionStart hooks (cached, paid once per session).
 
     If `bot` is provided, hides entries with a `bot` field that doesn't include
     the caller. Shared entries (no `bot` field) are always shown.
+    `types` restricts to only those types; `exclude_types` drops those types.
     """
     entries = filter_memories(bot=bot)
+    if types is not None:
+        entries = [m for m in entries if m.get("type", "feedback") in types]
+    if exclude_types is not None:
+        entries = [m for m in entries if m.get("type", "feedback") not in exclude_types]
     if not entries:
         return ""
     lines = ["MEMORIES (durable facts shared across agents):"]
@@ -280,12 +298,19 @@ def format_memories_for_prompt(*, bot: str | None = None) -> str:
     return "\n".join(lines)
 
 
-def format_memories_index(*, bot: str | None = None) -> str:
+def format_memories_index(*, bot: str | None = None,
+                          types: list[str] | None = None,
+                          exclude_types: list[str] | None = None) -> str:
     """Compact index — name + type + tags only, no body. ~800 tokens for 60 entries.
     For UserPromptSubmit hooks where the full dump is too expensive every turn.
     Bot can `multiagent-tools memory show <id>` to read any specific entry in full.
+    `types` restricts to only those types; `exclude_types` drops those types.
     """
     entries = filter_memories(bot=bot)
+    if types is not None:
+        entries = [m for m in entries if m.get("type", "feedback") in types]
+    if exclude_types is not None:
+        entries = [m for m in entries if m.get("type", "feedback") not in exclude_types]
     if not entries:
         return ""
     lines = [
