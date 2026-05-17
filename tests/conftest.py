@@ -26,7 +26,7 @@ def fresh_store(tmp_path, monkeypatch):
         sys.path.insert(0, project_root)
 
     # Drop any cached imports so the env var is picked up.
-    for mod_name in ("store", "history"):
+    for mod_name in ("store", "history", "server"):
         if mod_name in sys.modules:
             del sys.modules[mod_name]
 
