@@ -161,6 +161,16 @@ def _parse_csv(value: str | None) -> list[str]:
     return [v.strip() for v in value.split(",") if v.strip()]
 
 
+def _discord_fields(args: argparse.Namespace) -> dict:
+    chat_id = getattr(args, "discord_chat_id", "")
+    if not chat_id:
+        return {}
+    return {
+        "discord_chat_id": chat_id,
+        "discord_message_id": getattr(args, "discord_message_id", ""),
+    }
+
+
 def _detect_calling_bot() -> str | None:
     """Best-effort agent name detection. Override with MULTIAGENT_BOT in env."""
     explicit = os.environ.get("MULTIAGENT_BOT", "").strip()
@@ -199,7 +209,13 @@ def cmd_memory(args: argparse.Namespace, base: str) -> int:
         if not resp.get("ok"):
             print(f"Memory #{args.id} not found", file=sys.stderr)
             return 1
-        _print_memory_full(resp.get("memory", {}))
+        m = resp.get("memory", {})
+        if getattr(args, "body_only", False):
+            sys.stdout.write(m.get("text", ""))
+            if not m.get("text", "").endswith("\n"):
+                sys.stdout.write("\n")
+        else:
+            _print_memory_full(m)
         return 0
     if sub == "add":
         body: dict = {
@@ -212,6 +228,7 @@ def cmd_memory(args: argparse.Namespace, base: str) -> int:
         bot_list = _parse_csv(args.bot) if args.bot else None
         if bot_list is not None:
             body["bot"] = bot_list
+        body.update(_discord_fields(args))
         resp = _post(base, "/api/memory", body)
         if not resp.get("ok"):
             print(f"error: {resp.get('error', 'unknown')}", file=sys.stderr)
@@ -220,14 +237,20 @@ def cmd_memory(args: argparse.Namespace, base: str) -> int:
         print(f"Saved #{m.get('id')}: {m.get('name', '')}")
         return 0
     if sub == "edit":
-        resp = _put(base, f"/api/memory/{args.id}", {"text": args.text})
+        body = {"text": args.text}
+        body.update(_discord_fields(args))
+        resp = _put(base, f"/api/memory/{args.id}", body)
         if not resp.get("ok"):
             print(f"Memory #{args.id} not found", file=sys.stderr)
             return 1
         print(f"Updated #{args.id}")
         return 0
     if sub == "delete":
-        resp = _delete(base, f"/api/memory/{args.id}")
+        params = _discord_fields(args)
+        path = f"/api/memory/{args.id}"
+        if params:
+            path += "?" + urllib.parse.urlencode(params)
+        resp = _delete(base, path)
         if not resp.get("ok"):
             print(f"Memory #{args.id} not found", file=sys.stderr)
             return 1
@@ -268,7 +291,13 @@ def cmd_journal(args: argparse.Namespace, base: str) -> int:
         if not resp.get("ok"):
             print(f"Journal #{args.id} not found", file=sys.stderr)
             return 1
-        _print_journal_full(resp.get("entry", {}))
+        e = resp.get("entry", {})
+        if getattr(args, "body_only", False):
+            sys.stdout.write(e.get("text", ""))
+            if not e.get("text", "").endswith("\n"):
+                sys.stdout.write("\n")
+        else:
+            _print_journal_full(e)
         return 0
     if sub == "add":
         body = {
@@ -277,6 +306,7 @@ def cmd_journal(args: argparse.Namespace, base: str) -> int:
             "actor": args.actor or "",
             "tags": _parse_csv(args.tags),
         }
+        body.update(_discord_fields(args))
         resp = _post(base, "/api/journal", body)
         if not resp.get("ok"):
             print(f"error: {resp.get('error', 'unknown')}", file=sys.stderr)
@@ -284,8 +314,33 @@ def cmd_journal(args: argparse.Namespace, base: str) -> int:
         e = resp.get("entry", {})
         print(f"Pinned #{e.get('id')}")
         return 0
+    if sub == "edit":
+        body: dict = {}
+        if args.text is not None:
+            body["text"] = args.text
+        if args.actor is not None:
+            body["actor"] = args.actor
+        if args.source is not None:
+            body["source"] = args.source
+        if args.tags is not None:
+            body["tags"] = _parse_csv(args.tags)
+        if not body:
+            print("nothing to edit (pass text or --actor/--source/--tags)",
+                  file=sys.stderr)
+            return 2
+        body.update(_discord_fields(args))
+        resp = _put(base, f"/api/journal/{args.id}", body)
+        if not resp.get("ok"):
+            print(f"Journal #{args.id} not found", file=sys.stderr)
+            return 1
+        print(f"Edited #{args.id}")
+        return 0
     if sub == "delete":
-        resp = _delete(base, f"/api/journal/{args.id}")
+        params = _discord_fields(args)
+        path = f"/api/journal/{args.id}"
+        if params:
+            path += "?" + urllib.parse.urlencode(params)
+        resp = _delete(base, path)
         if not resp.get("ok"):
             print(f"Journal #{args.id} not found", file=sys.stderr)
             return 1
@@ -371,6 +426,13 @@ def cmd_persona(args: argparse.Namespace, base: str) -> int:
     return 2
 
 
+def _add_discord_flags(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--discord-chat-id", default="",
+                        help="post a confirmation card to this Discord channel after the op")
+    parser.add_argument("--discord-message-id", default="",
+                        help="reply-to message ID for the card (requires --discord-chat-id)")
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="multiagent-tools",
                                 description="Shared memory + journal (HTTP mode)")
@@ -386,6 +448,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     m_show = msub.add_parser("show")
     m_show.add_argument("id", type=int)
+    m_show.add_argument("--body-only", action="store_true")
 
     m_add = msub.add_parser("add")
     m_add.add_argument("text")
@@ -394,13 +457,16 @@ def build_parser() -> argparse.ArgumentParser:
     m_add.add_argument("--tags", default="")
     m_add.add_argument("--about", default="")
     m_add.add_argument("--bot", default="")
+    _add_discord_flags(m_add)
 
     m_edit = msub.add_parser("edit")
     m_edit.add_argument("id", type=int)
     m_edit.add_argument("text")
+    _add_discord_flags(m_edit)
 
     m_del = msub.add_parser("delete")
     m_del.add_argument("id", type=int)
+    _add_discord_flags(m_del)
 
     m_search = msub.add_parser("search")
     m_search.add_argument("term")
@@ -415,15 +481,26 @@ def build_parser() -> argparse.ArgumentParser:
 
     j_show = jsub.add_parser("show")
     j_show.add_argument("id", type=int)
+    j_show.add_argument("--body-only", action="store_true")
 
     j_add = jsub.add_parser("add")
     j_add.add_argument("text")
     j_add.add_argument("--source", default="cli")
     j_add.add_argument("--actor", default="")
     j_add.add_argument("--tags", default="")
+    _add_discord_flags(j_add)
+
+    j_edit = jsub.add_parser("edit")
+    j_edit.add_argument("id", type=int)
+    j_edit.add_argument("text", nargs="?", default=None)
+    j_edit.add_argument("--actor", default=None)
+    j_edit.add_argument("--source", default=None)
+    j_edit.add_argument("--tags", default=None)
+    _add_discord_flags(j_edit)
 
     j_del = jsub.add_parser("delete")
     j_del.add_argument("id", type=int)
+    _add_discord_flags(j_del)
 
     j_search = jsub.add_parser("search")
     j_search.add_argument("term")

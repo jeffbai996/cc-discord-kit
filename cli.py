@@ -13,6 +13,7 @@ Usage:
   multiagent-tools journal list [--days N]
   multiagent-tools journal show <id>
   multiagent-tools journal add <text> [--source SRC] [--actor A] [--tags a,b,c]
+  multiagent-tools journal edit <id> [<text>] [--actor A] [--source SRC] [--tags a,b,c]
   multiagent-tools journal delete <id>
   multiagent-tools journal search <term>
 
@@ -222,7 +223,12 @@ def cmd_memory(args: argparse.Namespace) -> int:
         if not m:
             print(f"Memory #{args.id} not found", file=sys.stderr)
             return 1
-        _print_memory_full(m)
+        if getattr(args, "body_only", False):
+            sys.stdout.write(m.get("text", ""))
+            if not m.get("text", "").endswith("\n"):
+                sys.stdout.write("\n")
+        else:
+            _print_memory_full(m)
         return 0
     if sub == "add":
         tags = _parse_csv(args.tags)
@@ -282,7 +288,12 @@ def cmd_journal(args: argparse.Namespace) -> int:
         if not e:
             print(f"Journal #{args.id} not found", file=sys.stderr)
             return 1
-        _print_journal_full(e)
+        if getattr(args, "body_only", False):
+            sys.stdout.write(e.get("text", ""))
+            if not e.get("text", "").endswith("\n"):
+                sys.stdout.write("\n")
+        else:
+            _print_journal_full(e)
         return 0
     if sub == "add":
         tags = _parse_csv(args.tags)
@@ -290,6 +301,36 @@ def cmd_journal(args: argparse.Namespace) -> int:
                               actor=args.actor or "", tags=tags)
         print(f"Pinned #{e['id']}")
         _post_card_if_discord({"kind": "journal_added", "entry": e}, args)
+        return 0
+    if sub == "edit":
+        before = _find_journal(args.id)
+        if not before:
+            print(f"Journal #{args.id} not found", file=sys.stderr)
+            return 1
+        kwargs = {}
+        if args.text is not None:
+            kwargs["text"] = args.text
+        if args.actor is not None:
+            kwargs["actor"] = args.actor
+        if args.source is not None:
+            kwargs["source"] = args.source
+        if args.tags is not None:
+            kwargs["tags"] = _parse_csv(args.tags)
+        if not kwargs:
+            print("nothing to edit (pass text or --actor/--source/--tags)",
+                  file=sys.stderr)
+            return 2
+        ok = store.edit_journal(args.id, **kwargs)
+        if not ok:
+            print(f"Journal #{args.id} edit failed", file=sys.stderr)
+            return 1
+        after = _find_journal(args.id)
+        print(f"Edited #{args.id}")
+        _post_card_if_discord(
+            {"kind": "journal_edited", "id": args.id,
+             "before": before, "after": after},
+            args,
+        )
         return 0
     if sub == "delete":
         before = _find_journal(args.id)
@@ -405,6 +446,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     m_show = msub.add_parser("show")
     m_show.add_argument("id", type=int)
+    m_show.add_argument("--body-only", action="store_true",
+                        help="print only the body text, no rendered metadata")
 
     m_add = msub.add_parser("add")
     m_add.add_argument("text")
@@ -440,6 +483,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     j_show = jsub.add_parser("show")
     j_show.add_argument("id", type=int)
+    j_show.add_argument("--body-only", action="store_true",
+                        help="print only the body text, no rendered metadata")
 
     j_add = jsub.add_parser("add")
     j_add.add_argument("text")
@@ -447,6 +492,18 @@ def build_parser() -> argparse.ArgumentParser:
     j_add.add_argument("--actor", default="")
     j_add.add_argument("--tags", default="")
     _add_discord_flags(j_add)
+
+    j_edit = jsub.add_parser("edit")
+    j_edit.add_argument("id", type=int)
+    j_edit.add_argument("text", nargs="?", default=None,
+                        help="new body text (omit to keep current text)")
+    j_edit.add_argument("--actor", default=None,
+                        help="overwrite the entry's actor field")
+    j_edit.add_argument("--source", default=None,
+                        help="overwrite the entry's source field")
+    j_edit.add_argument("--tags", default=None,
+                        help="comma-separated tags (overwrites)")
+    _add_discord_flags(j_edit)
 
     j_del = jsub.add_parser("delete")
     j_del.add_argument("id", type=int)
