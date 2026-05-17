@@ -152,12 +152,17 @@ def format_card(action: dict) -> str | None:
         before = action.get("before") or {}
         if not before:
             return None
+        # Header stays plain (no name suffix) — when something's gone, the
+        # bold line should announce the loss, not eulogize it. Name + a short
+        # excerpt of the body live inside the block so the user can still
+        # recognize what was removed.
+        meta: list[tuple[str, str]] = [("type", before.get("type", "?"))]
         title = before.get("name") or ""
-        meta = [("type", before.get("type", "?"))]
-        head = f"🗑️ **Memory #{before.get('id', '?')} deleted**"
         if title:
-            head += f" — {title}"
-        return head + "\n" + _render_card_block(meta, None)
+            meta.append(("name", title))
+        body = _truncate_body(before.get("text", "")) or None
+        head = f"🗑️ **Memory #{before.get('id', '?')} deleted**"
+        return head + "\n" + _render_card_block(meta, body)
     if kind == "journal_added":
         e = action.get("entry") or {}
         if not e.get("id"):
