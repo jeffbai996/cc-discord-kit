@@ -38,3 +38,15 @@ agents:
     - slot: persona.md
       path: ~/repos/agent-configs/agent-3/persona.md
       mode: git
+
+# Optional: per-agent metadata. Only used by the CLI today for the
+# Discord card fallback when no --discord-chat-id is passed and the
+# active Claude Code transcript has no <channel> tag. If you set
+# discord_home_channel on an agent, any mutation from that agent's
+# Claude Code session (CLAUDECODE=1) lands a card in the named channel.
+# Leave it out and silent-by-default takes over.
+agent_meta:
+  agent-1:
+    discord_home_channel: "1234567890123456789"
+  agent-2:
+    discord_home_channel: "9876543210987654321"

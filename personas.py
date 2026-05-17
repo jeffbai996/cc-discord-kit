@@ -47,6 +47,7 @@ def _config_path() -> str:
 # Cache parsed config so we don't reread on every endpoint call.
 _BOTS_CACHE: dict[str, list[tuple[str, str, Mode]]] | None = None
 _GIT_REPO_CACHE: str | None = None
+_META_CACHE: dict[str, dict] | None = None
 
 
 def _load_config() -> tuple[dict[str, list[tuple[str, str, Mode]]], str]:
@@ -60,8 +61,11 @@ def _load_config() -> tuple[dict[str, list[tuple[str, str, Mode]]], str]:
           - { slot: persona.md, path: /abs/path, mode: plain }
         agent-2:
           - { slot: persona.md, path: /abs/path, mode: plain }
+      agent_meta:                   # optional per-agent metadata
+        agent-1:
+          discord_home_channel: "<channel_id>"  # cli card fallback target
     """
-    global _BOTS_CACHE, _GIT_REPO_CACHE
+    global _BOTS_CACHE, _GIT_REPO_CACHE, _META_CACHE
     if _BOTS_CACHE is not None:
         return _BOTS_CACHE, _GIT_REPO_CACHE or ""
 
@@ -70,6 +74,7 @@ def _load_config() -> tuple[dict[str, list[tuple[str, str, Mode]]], str]:
         # Empty registry — endpoints will return 404/empty list.
         _BOTS_CACHE = {}
         _GIT_REPO_CACHE = ""
+        _META_CACHE = {}
         return _BOTS_CACHE, ""
 
     if yaml is None:
@@ -91,16 +96,23 @@ def _load_config() -> tuple[dict[str, list[tuple[str, str, Mode]]], str]:
             slot_tuples.append((slot, slot_path, mode))
         bots[str(name)] = slot_tuples
 
+    meta: dict[str, dict] = {}
+    for name, m in (data.get("agent_meta") or {}).items():
+        if isinstance(m, dict):
+            meta[str(name)] = m
+
     _BOTS_CACHE = bots
     _GIT_REPO_CACHE = git_repo
+    _META_CACHE = meta
     return bots, git_repo
 
 
 def reset_cache() -> None:
     """Test hook + manual reload after editing agents.yaml."""
-    global _BOTS_CACHE, _GIT_REPO_CACHE
+    global _BOTS_CACHE, _GIT_REPO_CACHE, _META_CACHE
     _BOTS_CACHE = None
     _GIT_REPO_CACHE = None
+    _META_CACHE = None
 
 
 def _bots() -> dict[str, list[tuple[str, str, Mode]]]:
@@ -111,6 +123,18 @@ def _bots() -> dict[str, list[tuple[str, str, Mode]]]:
 def _git_repo() -> str:
     _, repo = _load_config()
     return repo
+
+
+def get_agent_meta(bot: str | None) -> dict:
+    """Return optional per-agent metadata (discord_home_channel, etc).
+
+    Empty dict if the agent isn't in the registry or has no meta block.
+    Safe to call with None — returns {}.
+    """
+    if not bot:
+        return {}
+    _load_config()
+    return dict(_META_CACHE.get(bot, {})) if _META_CACHE else {}
 
 
 def list_bots() -> list[str]:
