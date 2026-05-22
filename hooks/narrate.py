@@ -545,22 +545,34 @@ def _handle_watch_locked(
         return 0
 
     # Race guard: if a reply has landed AFTER we'd want to create a
-    # fresh placeholder for the current segment, skip creation.
+    # fresh placeholder for the current segment, decide based on mode.
     # Posting now would land AFTER that reply (Discord positions by
-    # post time, never reorders on edit). In collapse mode this fleeting
-    # marker would look like the bot talking to itself; in always
-    # mode it would render as a header below the reply.
-    # Edits to an existing placeholder are still fine — only a
-    # brand-new send after the latest reply is the problem.
+    # post time, never reorders on edit).
+    #
+    # Collapse mode: suppress. A placeholder posted below the reply will
+    # be deleted at Stop anyway — that's just a visible flash of "the
+    # agent is talking to itself" with no payoff.
+    #
+    # Always mode: post anyway. A "Narration" header rendered BELOW the
+    # reply is degraded (the convention is above) but at least visible;
+    # silently dropping the prose is worse. This case fires routinely when
+    # the model emits text BEFORE the reply tool in a single turn ("on
+    # it, let me look into X" followed by a Discord reply) — the prose
+    # then has nowhere to land if we suppress.
+    #
+    # Edits to an existing placeholder are still fine in both modes —
+    # only a brand-new send after the latest reply was at risk.
     if (
         not turn.get("placeholder_msg_id")
         and current_reply_count > turn.get("replies_at_create", 0)
     ):
-        turn["last_byte_offset"] = new_offset
-        state[turn_key] = turn
-        _save_state(state)
-        log(f"narrate suppressed for {turn_key}: reply already landed before first watch fire")
-        return 0
+        if mode == "collapse":
+            turn["last_byte_offset"] = new_offset
+            state[turn_key] = turn
+            _save_state(state)
+            log(f"narrate suppressed for {turn_key}: reply already landed (collapse mode)")
+            return 0
+        log(f"narrate posting below reply for {turn_key}: prose-then-reply turn (always mode)")
 
     state_dir = detect_discord_state_dir()
     token = read_bot_token(state_dir)
