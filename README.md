@@ -2,6 +2,23 @@
 
 A self-hosted shared brain for multi-agent setups: durable memory, journal, persona files, channel digest, and live infrastructure inventory across N hosts. Backing store is plain JSON. UI is a Flask web app with a `⌘K` command palette. Designed to be poked at over the local network or a private tunnel (e.g. tailscale), never the public internet.
 
+## Why this is shaped the way it is
+
+Several agent processes — Claude Code instances, scripts, humans-in-the-loop — need to share a notebook and be legible to an operator who isn't watching a terminal. This kit answers both halves.
+
+**A shared brain, not a database.** The core is a JSON-backed store of two record types: durable *memories* (facts, capped at 200) and a *journal* of pinned moments (capped at 1000), plus per-agent *persona* files. Every agent reads and writes it through one CLI — locally on a shared filesystem, or over HTTP against the Flask server when it's remote. Optional semantic search is delegated to an external vecgrep service over HTTP; the kit ships no embedding model of its own. Plain JSON and last-writer-wins are the point: the store is auditable by hand and survives any process dying mid-write.
+
+**Three observability lanes** make an agent's turn legible from a phone, without tailing logs. Each is an independent Claude Code hook, opt-in per agent and per channel:
+- **narration** (`narrate.py`) — the agent's between-tool prose, posted live as a `🧠` blockquote and either collapsed away or kept above the final reply.
+- **tool-trace** (`tool_watcher.py`) — the tool calls themselves, from a one-line ticker up to full diffs and stripped command output.
+- **emoji-state** (`react_hook.py`) — a single reaction on the triggering message tracking turn lifecycle: `👀` received, `🤔/🔧/🌐/🤖` working (thinking / editing / researching / delegating to a sub-agent), `✅` replied, `🖥️` ended in terminal only, `💾` wrote to memory, `📝` compacted, `❌` errored, `🔀` cross-channel leak, `🔔` system notification.
+
+**Discord is the default substrate, not a hard dependency.** The store, CLI, server, and inventory layers are transport-agnostic — they don't know Discord exists. The observability and echo hooks, however, are Discord-native: reactions, `>>>` blockquotes, and the 2000-character pagination guard are written against Discord's REST semantics. Swapping substrates means reimplementing that hook layer against the new surface; the brain underneath ports unchanged.
+
+**The control path is read-only.** `notify_hook.py` mirrors Claude Code permission and elicitation prompts to Discord — including the option list for an `AskUserQuestion` — so the operator sees *what's being asked* from anywhere. There is no write-back: you still answer in the terminal. Mid-flight steering and remote interrupt are not built.
+
+The Claude Code hooks were ported from a sibling repo, `cc-context`; the memory/store/server layer originated here.
+
 Originally built to coordinate several Claude Code agents talking through Discord; the architecture works for any setup where multiple agent processes (LLMs, scripts, humans-in-the-loop) need a shared notebook.
 
 ## What's in here
@@ -206,7 +223,7 @@ The `hooks/` directory has a full set of Claude Code hooks. Wire any subset into
   | replied    | ✅    | PostToolUse on Discord reply tool            |
   | terminal   | 🖥️    | Stop — Discord-origin turn with no reply / no content react |
   | memorized  | 💾    | Stop — turn wrote a memory/journal entry     |
-  | compacted  | 🗜️    | PreCompact — context was compacted           |
+  | compacted  | 📝    | PreCompact — context was compacted           |
   | crosscheck | 🔀    | PostToolUse on reply tool — chat_id doesn't match any inbound origin (cross-channel leak warning) |
   | notified   | 🔔    | External — `notify_hook` mirrored a system notification |
 
