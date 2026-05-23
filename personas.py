@@ -7,8 +7,8 @@ single source of truth for "where does agent X keep file Y," plus
 atomic read/write with optional git commit for files that live inside
 a tracked repo.
 
-The agent registry loads from `~/.config/multiagent-tools/agents.yaml`
-(or the path in `MULTIAGENT_AGENTS_FILE`). See `agents.example.yaml` in
+The agent registry loads from `~/.config/cc-discord-kit/agents.yaml`
+(or the path in `CCDK_AGENTS_FILE`). See `agents.example.yaml` in
 the repo root for the schema.
 
 Paths in the registry are literal — never accept user-supplied path
@@ -38,10 +38,10 @@ class Slot(TypedDict):
 
 # Default config search path: env var, then XDG-style fallback.
 def _config_path() -> str:
-    explicit = os.environ.get("MULTIAGENT_AGENTS_FILE")
+    explicit = os.environ.get("CCDK_AGENTS_FILE")
     if explicit:
         return os.path.expanduser(explicit)
-    return os.path.expanduser("~/.config/multiagent-tools/agents.yaml")
+    return os.path.expanduser("~/.config/cc-discord-kit/agents.yaml")
 
 
 # Cache parsed config so we don't reread on every endpoint call.

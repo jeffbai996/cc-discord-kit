@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# multiagent-tools installer. Idempotent — safe to re-run.
+# cc-discord-kit installer. Idempotent — safe to re-run.
 #
 # Linux — by default:
-#   - symlinks ~/.local/bin/multiagent-tools -> module's cli.py
+#   - symlinks ~/.local/bin/cc-discord-kit -> module's cli.py
 #   - patches ~/.claude/settings.json hooks to point at the module
 #   - installs systemd user units for server.py + discord_handler.py
 #     (use --no-services to skip the systemd step)
 #
 # macOS — by default:
-#   - symlinks ~/.local/bin/multiagent-tools -> module's cli.py
-#   - prompts for MULTIAGENT_URL and writes ~/.config/multiagent-tools/env
+#   - symlinks ~/.local/bin/cc-discord-kit -> module's cli.py
+#   - prompts for CCDK_URL and writes ~/.config/cc-discord-kit/env
 #     (CLI runs in HTTP mode against the configured remote server)
 #
 # Re-runnable. Detects existing patches via marker comments and skips them.
@@ -19,7 +19,7 @@ set -eo pipefail
 MODULE_DIR="$(cd "$(dirname "$0")" && pwd)"
 OS="$(uname -s)"
 WITH_SERVICES=1
-MARKER="# multiagent-tools-module"
+MARKER="# cc-discord-kit-module"
 
 usage() {
   cat <<EOF
@@ -39,14 +39,14 @@ for arg in "$@"; do
   esac
 done
 
-echo "==> multiagent-tools module install"
+echo "==> cc-discord-kit module install"
 echo "    module dir: $MODULE_DIR"
 echo "    OS:         $OS"
 echo
 
 # 1. CLI symlink (both platforms)
 mkdir -p "$HOME/.local/bin"
-LINK="$HOME/.local/bin/multiagent-tools"
+LINK="$HOME/.local/bin/cc-discord-kit"
 if [ -L "$LINK" ] && [ "$(readlink "$LINK")" = "$MODULE_DIR/cli.py" ]; then
   echo "  ok $LINK (already linked)"
 else
@@ -83,7 +83,7 @@ with open(settings_path) as f:
 data = json.loads(raw)
 
 # Backup once
-backup = settings_path + ".pre-multiagent-tools"
+backup = settings_path + ".pre-cc-discord-kit"
 if not os.path.exists(backup):
     shutil.copy2(settings_path, backup)
 
@@ -123,7 +123,7 @@ PYEOF
     if [ "$WITH_SERVICES" = "1" ]; then
       UNIT_DIR="$HOME/.config/systemd/user"
       mkdir -p "$UNIT_DIR"
-      ENV_FILE="$HOME/.config/multiagent-tools/env"
+      ENV_FILE="$HOME/.config/cc-discord-kit/env"
       mkdir -p "$(dirname "$ENV_FILE")"
       [ ! -f "$ENV_FILE" ] && touch "$ENV_FILE" && chmod 600 "$ENV_FILE"
 
@@ -141,16 +141,16 @@ PYEOF
 
       echo "  >> installing systemd units"
 
-      cat > "$UNIT_DIR/multiagent-tools-server.service" <<UNIT
+      cat > "$UNIT_DIR/cc-discord-kit-server.service" <<UNIT
 [Unit]
-Description=multiagent-tools Flask web UI + HTTP API
+Description=cc-discord-kit Flask web UI + HTTP API
 After=network.target
 
 [Service]
 Type=simple
 EnvironmentFile=-$ENV_FILE
-Environment=MULTIAGENT_HOST=127.0.0.1
-Environment=MULTIAGENT_PORT=5005
+Environment=CCDK_HOST=127.0.0.1
+Environment=CCDK_PORT=5005
 ExecStart=$VENV_PY $MODULE_DIR/server.py
 Restart=on-failure
 RestartSec=5
@@ -158,11 +158,11 @@ RestartSec=5
 [Install]
 WantedBy=default.target
 UNIT
-      echo "     wrote $UNIT_DIR/multiagent-tools-server.service"
+      echo "     wrote $UNIT_DIR/cc-discord-kit-server.service"
 
-      cat > "$UNIT_DIR/multiagent-tools-discord.service" <<UNIT
+      cat > "$UNIT_DIR/cc-discord-kit-discord.service" <<UNIT
 [Unit]
-Description=multiagent-tools Discord /mem and /journal slash command handler
+Description=cc-discord-kit Discord /mem and /journal slash command handler
 After=network.target
 
 [Service]
@@ -175,17 +175,17 @@ RestartSec=10
 [Install]
 WantedBy=default.target
 UNIT
-      echo "     wrote $UNIT_DIR/multiagent-tools-discord.service"
+      echo "     wrote $UNIT_DIR/cc-discord-kit-discord.service"
 
       systemctl --user daemon-reload
-      systemctl --user enable --now multiagent-tools-server.service 2>&1 \
+      systemctl --user enable --now cc-discord-kit-server.service 2>&1 \
         | sed 's/^/     /'
       # Discord handler enable depends on token presence — only enable if env file has it
-      if grep -q "MULTIAGENT_DISCORD_TOKEN=" "$ENV_FILE" 2>/dev/null; then
-        systemctl --user enable --now multiagent-tools-discord.service 2>&1 \
+      if grep -q "CCDK_DISCORD_TOKEN=" "$ENV_FILE" 2>/dev/null; then
+        systemctl --user enable --now cc-discord-kit-discord.service 2>&1 \
           | sed 's/^/     /'
       else
-        echo "     SKIP multiagent-tools-discord.service (set MULTIAGENT_DISCORD_TOKEN in $ENV_FILE then enable)"
+        echo "     SKIP cc-discord-kit-discord.service (set CCDK_DISCORD_TOKEN in $ENV_FILE then enable)"
       fi
     else
       echo "  -- skipping systemd units (--no-services)"
@@ -193,25 +193,25 @@ UNIT
 
     echo
     echo "Linux install done."
-    echo "  - CLI:        multiagent-tools memory list"
+    echo "  - CLI:        cc-discord-kit memory list"
     echo "  - Web UI:     http://127.0.0.1:5005  (expose via 'tailscale serve')"
     echo "  - Hooks:      restart Claude Code to load patched settings.json"
     ;;
   Darwin)
-    ENV_FILE="$HOME/.config/multiagent-tools/env"
+    ENV_FILE="$HOME/.config/cc-discord-kit/env"
     mkdir -p "$(dirname "$ENV_FILE")"
     [ ! -f "$ENV_FILE" ] && touch "$ENV_FILE" && chmod 600 "$ENV_FILE"
 
-    if grep -q "^MULTIAGENT_URL=" "$ENV_FILE" 2>/dev/null; then
-      current=$(grep "^MULTIAGENT_URL=" "$ENV_FILE" | head -1 | cut -d= -f2-)
-      echo "  ok MULTIAGENT_URL already set: $current"
+    if grep -q "^CCDK_URL=" "$ENV_FILE" 2>/dev/null; then
+      current=$(grep "^CCDK_URL=" "$ENV_FILE" | head -1 | cut -d= -f2-)
+      echo "  ok CCDK_URL already set: $current"
     else
-      printf "  >> MULTIAGENT_URL not set. Enter the multiagent-tools URL\n"
+      printf "  >> CCDK_URL not set. Enter the cc-discord-kit URL\n"
       printf "     (e.g. http://your-server:5005 or https://your-server.example):\n  > "
       read -r url || url=""
       if [ -n "$url" ]; then
-        echo "MULTIAGENT_URL=$url" >> "$ENV_FILE"
-        echo "     wrote MULTIAGENT_URL=$url to $ENV_FILE"
+        echo "CCDK_URL=$url" >> "$ENV_FILE"
+        echo "     wrote CCDK_URL=$url to $ENV_FILE"
       else
         echo "     no URL entered — CLI will run in local-fs mode (no remote data)"
       fi
@@ -220,8 +220,8 @@ UNIT
     echo
     echo "macOS install done."
     echo "  - To enable HTTP mode, add this to your shell rc:"
-    echo "      [ -f \$HOME/.config/multiagent-tools/env ] && set -a && source \$HOME/.config/multiagent-tools/env && set +a"
-    echo "  - Then: multiagent-tools memory list"
+    echo "      [ -f \$HOME/.config/cc-discord-kit/env ] && set -a && source \$HOME/.config/cc-discord-kit/env && set +a"
+    echo "  - Then: cc-discord-kit memory list"
     ;;
   *)
     echo "unsupported OS: $OS" >&2

@@ -1,6 +1,6 @@
 # Saving from a Discord turn
 
-The canonical path for saving memories or journal entries during a Discord-originated bot turn is the `multiagent-tools` CLI with `--discord-chat-id` and `--discord-message-id` flags.
+The canonical path for saving memories or journal entries during a Discord-originated bot turn is the `cc-discord-kit` CLI with `--discord-chat-id` and `--discord-message-id` flags.
 
 A `[MEMORY: ...]` / `[JOURNAL: ...]` tag protocol shipped earlier where bots emitted tags inline in their assistant text and a Stop hook scanned the transcript and wrote to the store. The tag protocol is no longer recommended — bots talking *about* the syntax triggered junk saves; tags inside fenced code blocks needed scrubbing; the tag-parsing layer was hard to make robust against agents that quote the syntax in prose.
 
@@ -9,7 +9,7 @@ The current flow is one explicit command, no transcript scanning, no scrubbing.
 ## How to save
 
 ```bash
-multiagent-tools memory add \
+cc-discord-kit memory add \
   --type {user|feedback|project|reference} \
   --name "<short name>" \
   --tags "tag1,tag2" \
@@ -57,7 +57,7 @@ The code-block surface is mobile-friendly and consistent across action types —
 - **`store.py`** — JSON-backed memory + journal store
 - **`cli.py`** — argparse CLI; `_post_card_if_discord` calls into `discord_card` after every successful mutating op when `--discord-chat-id` is set
 - **`discord_card.py`** — shared module: `format_card(action) → str`, `post_action_card(action, chat_id, reply_to)`. Used by the CLI; the legacy Stop hook can also import it as a fallback path
-- **Token resolution** in `discord_card.read_bot_token()` chains through `$MULTIAGENT_DISCORD_TOKEN` → `$DISCORD_STATE_DIR/.env` → `$CLAUDE_PLUGIN_STATE_DIR/.env` → `$CLAUDE_CONFIG_DIR/channels/discord/.env` → `~/.claude/channels/discord/.env`. The `$DISCORD_STATE_DIR` priority covers multi-agent setups where each bot has its own state dir but shares `CLAUDE_CONFIG_DIR` — without it, cards post under the wrong agent identity
+- **Token resolution** in `discord_card.read_bot_token()` chains through `$CCDK_DISCORD_TOKEN` → `$DISCORD_STATE_DIR/.env` → `$CLAUDE_PLUGIN_STATE_DIR/.env` → `$CLAUDE_CONFIG_DIR/channels/discord/.env` → `~/.claude/channels/discord/.env`. The `$DISCORD_STATE_DIR` priority covers multi-agent setups where each bot has its own state dir but shares `CLAUDE_CONFIG_DIR` — without it, cards post under the wrong agent identity
 
 ## Why this is the only path
 

@@ -9,8 +9,8 @@ Two stores:
   memories.json  — durable facts (cap 200), always loaded into prompt
   journal.json   — pinned moments (cap 1000), recent slice loaded into prompt
 
-Data location is parametrized via the MULTIAGENT_DATA_DIR env var.
-Default is `~/.local/share/multiagent-tools/`.
+Data location is parametrized via the CCDK_DATA_DIR env var.
+Default is `~/.local/share/cc-discord-kit/`.
 
 Schema (memory entry):
   id, ts, type, name, text, tags, about?, bot?
@@ -31,10 +31,10 @@ log = logging.getLogger(__name__)
 
 def _resolve_data_dir() -> str:
     """Return the directory housing memories.json + journal.json."""
-    explicit = os.environ.get("MULTIAGENT_DATA_DIR", "")
+    explicit = os.environ.get("CCDK_DATA_DIR", "")
     if explicit:
         return os.path.expanduser(explicit)
-    return os.path.expanduser("~/.local/share/multiagent-tools")
+    return os.path.expanduser("~/.local/share/cc-discord-kit")
 
 
 DATA_DIR = _resolve_data_dir()
@@ -47,7 +47,7 @@ JOURNAL_CAP = 1000
 VALID_TYPES = {"user", "feedback", "project", "reference"}
 
 # Strip leading rendered-header lines that agents sometimes paste back when
-# round-tripping content through `multiagent-tools memory show`. This keeps
+# round-tripping content through `cc-discord-kit memory show`. This keeps
 # metadata displays from compounding into the stored body across edits.
 _RENDERED_HEADER_RE = re.compile(
     r'^(About: [^\n]*\n+Saved: [^\n]*\n+)+', re.MULTILINE
@@ -345,7 +345,7 @@ def format_memories_index(*, bot: str | None = None,
                           exclude_types: list[str] | None = None) -> str:
     """Compact index — name + type + tags only, no body. ~800 tokens for 60 entries.
     For UserPromptSubmit hooks where the full dump is too expensive every turn.
-    Bot can `multiagent-tools memory show <id>` to read any specific entry in full.
+    Bot can `cc-discord-kit memory show <id>` to read any specific entry in full.
     `types` restricts to only those types; `exclude_types` drops those types.
     """
     entries = filter_memories(bot=bot)
@@ -357,7 +357,7 @@ def format_memories_index(*, bot: str | None = None,
         return ""
     lines = [
         "MEMORIES INDEX — names + tags only.",
-        "Run `multiagent-tools memory show <id>` to read full text of any entry.",
+        "Run `cc-discord-kit memory show <id>` to read full text of any entry.",
     ]
     by_type: dict[str, list[dict]] = {}
     for m in entries:

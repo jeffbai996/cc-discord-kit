@@ -1,10 +1,10 @@
-"""HTTP-mode CLI client. Activated when MULTIAGENT_URL env var is set.
+"""HTTP-mode CLI client. Activated when CCDK_URL env var is set.
 
 cli.py defers to this module instead of loading store.py directly. We mirror
 the local CLI's argument shape and output format byte-for-byte so users
 (humans and tools) can't tell which mode they're in.
 
-Talks to the Flask server at MULTIAGENT_URL via /api/memory and /api/journal.
+Talks to the Flask server at CCDK_URL via /api/memory and /api/journal.
 """
 
 from __future__ import annotations
@@ -172,8 +172,8 @@ def _discord_fields(args: argparse.Namespace) -> dict:
 
 
 def _detect_calling_bot() -> str | None:
-    """Best-effort agent name detection. Override with MULTIAGENT_BOT in env."""
-    explicit = os.environ.get("MULTIAGENT_BOT", "").strip()
+    """Best-effort agent name detection. Override with CCDK_BOT in env."""
+    explicit = os.environ.get("CCDK_BOT", "").strip()
     if explicit:
         return explicit
     # Fallback: derive from CLAUDE_CONFIG_DIR last path segment if set,
@@ -434,7 +434,7 @@ def _add_discord_flags(parser: argparse.ArgumentParser) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="multiagent-tools",
+    p = argparse.ArgumentParser(prog="cc-discord-kit",
                                 description="Shared memory + journal (HTTP mode)")
     top = p.add_subparsers(dest="cmd", required=True)
 
@@ -533,8 +533,8 @@ def main(argv: list[str], *, base_url: str) -> int:
 
 
 if __name__ == "__main__":
-    url = os.environ.get("MULTIAGENT_URL", "")
+    url = os.environ.get("CCDK_URL", "")
     if not url:
-        print("error: MULTIAGENT_URL not set", file=sys.stderr)
+        print("error: CCDK_URL not set", file=sys.stderr)
         sys.exit(2)
     sys.exit(main(sys.argv[1:], base_url=url))

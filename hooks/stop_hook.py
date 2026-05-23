@@ -45,10 +45,10 @@ import discord_card  # noqa: E402
 
 LOG_PATH = os.path.join(store.DATA_DIR, "stop_hook.log")
 
-# Agent identity. MULTIAGENT_BOT in env wins; otherwise derive from
+# Agent identity. CCDK_BOT in env wins; otherwise derive from
 # CLAUDE_CONFIG_DIR last path segment, falling back to hostname.
 HOST = socket.gethostname()
-_explicit = os.environ.get("MULTIAGENT_BOT", "").strip()
+_explicit = os.environ.get("CCDK_BOT", "").strip()
 if _explicit:
     BOT_NAME = _explicit
 else:

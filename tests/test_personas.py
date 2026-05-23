@@ -1,7 +1,7 @@
 """Persona registry tests.
 
-We point MULTIAGENT_AGENTS_FILE at a tmp YAML so personas.py never reads
-the user's real ~/.config/multiagent-tools/agents.yaml.
+We point CCDK_AGENTS_FILE at a tmp YAML so personas.py never reads
+the user's real ~/.config/cc-discord-kit/agents.yaml.
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ def fresh_personas(tmp_path, monkeypatch):
           testbot:
             - {{ slot: plain.md, path: {plain}, mode: plain }}
     """).strip() + "\n")
-    monkeypatch.setenv("MULTIAGENT_AGENTS_FILE", str(agents_file))
+    monkeypatch.setenv("CCDK_AGENTS_FILE", str(agents_file))
     p = _import_personas()
     p.reset_cache()
     return p, plain
@@ -59,7 +59,7 @@ def git_personas(tmp_path, monkeypatch):
           gitbot:
             - {{ slot: tracked.md, path: {tracked}, mode: git }}
     """).strip() + "\n")
-    monkeypatch.setenv("MULTIAGENT_AGENTS_FILE", str(agents_file))
+    monkeypatch.setenv("CCDK_AGENTS_FILE", str(agents_file))
     p = _import_personas()
     p.reset_cache()
     return p, repo, tracked

@@ -246,9 +246,9 @@ def _probe_local() -> dict[str, Any]:
     is_mac = platform.system() == "Darwin"
 
     # Default settings.json candidate paths. Override with
-    # MULTIAGENT_SETTINGS_PATHS (colon-separated). Useful when your agent
+    # CCDK_SETTINGS_PATHS (colon-separated). Useful when your agent
     # config lives somewhere non-standard.
-    extra_paths_env = os.environ.get("MULTIAGENT_SETTINGS_PATHS", "").strip()
+    extra_paths_env = os.environ.get("CCDK_SETTINGS_PATHS", "").strip()
     if extra_paths_env:
         settings_paths = [
             os.path.expanduser(p) for p in extra_paths_env.split(":") if p.strip()

@@ -36,7 +36,7 @@ Output:
   - Exit code shown only when nonzero
   - Stdout and stderr are merged
 
-Logs: ~/.local/state/multiagent-tools/passthrough.log (override with MAT_PASSTHROUGH_LOG)
+Logs: ~/.local/state/cc-discord-kit/passthrough.log (override with MAT_PASSTHROUGH_LOG)
 """
 
 from __future__ import annotations
@@ -61,13 +61,13 @@ from pathlib import Path
 #
 # Resolution order:
 #   1. MAT_OWNER_DISCORD_USER_ID env var (preferred — works everywhere)
-#   2. ~/.config/multiagent-tools/owner_id file (single line, just the user_id)
+#   2. ~/.config/cc-discord-kit/owner_id file (single line, just the user_id)
 #
 # Fails closed when neither is set — any other behavior would let arbitrary
 # Discord users run shell on the host.
 OWNER_ID_FILE = Path(
     os.environ.get("MAT_OWNER_ID_FILE")
-    or Path.home() / ".config" / "multiagent-tools" / "owner_id"
+    or Path.home() / ".config" / "cc-discord-kit" / "owner_id"
 )
 
 
@@ -92,7 +92,7 @@ ATTACHMENT_LIMIT = 8 * 1024 * 1024  # Discord default upload cap is 8MB for non-
 # Log location — override with MAT_PASSTHROUGH_LOG env var.
 LOG_PATH = Path(
     os.environ.get("MAT_PASSTHROUGH_LOG")
-    or Path.home() / ".local" / "state" / "multiagent-tools" / "passthrough.log"
+    or Path.home() / ".local" / "state" / "cc-discord-kit" / "passthrough.log"
 )
 
 # Directory scanned for user-defined slash commands. Filename (minus .sh/.py)
@@ -108,7 +108,7 @@ COMMANDS_DIR = Path(
 # Reset with `!cd` (no args) or `!cd ~`.
 CWD_STATE_FILE = Path(
     os.environ.get("MAT_CWD_STATE_FILE")
-    or Path.home() / ".cache" / "multiagent-tools" / "passthrough_cwd"
+    or Path.home() / ".cache" / "cc-discord-kit" / "passthrough_cwd"
 )
 
 
@@ -234,7 +234,7 @@ def parse_passthrough(prompt: str) -> dict | None:
     owner_id = get_owner_id()
     if not owner_id:
         # Fail closed — neither env var nor owner_id file is set.
-        log("owner_id not configured (env MAT_OWNER_DISCORD_USER_ID or ~/.config/multiagent-tools/owner_id) — refusing")
+        log("owner_id not configured (env MAT_OWNER_DISCORD_USER_ID or ~/.config/cc-discord-kit/owner_id) — refusing")
         return None
     if user_id != owner_id:
         return None
@@ -577,7 +577,7 @@ def _discord_post_message(token: str, channel_id: str, content: str, reply_to: s
         headers={
             "Authorization": f"Bot {token}",
             "Content-Type": "application/json",
-            "User-Agent": "multiagent-tools-passthrough/1.0",
+            "User-Agent": "cc-discord-kit-passthrough/1.0",
         },
     )
     try:
@@ -619,7 +619,7 @@ def _discord_post_with_attachment(
         headers={
             "Authorization": f"Bot {token}",
             "Content-Type": f"multipart/form-data; boundary={boundary}",
-            "User-Agent": "multiagent-tools-passthrough/1.0",
+            "User-Agent": "cc-discord-kit-passthrough/1.0",
         },
     )
     try:

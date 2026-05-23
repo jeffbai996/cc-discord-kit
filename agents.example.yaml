@@ -1,6 +1,6 @@
-# multiagent-tools — agents registry example.
+# cc-discord-kit — agents registry example.
 #
-# Copy this to ~/.config/multiagent-tools/agents.yaml and edit to match
+# Copy this to ~/.config/cc-discord-kit/agents.yaml and edit to match
 # your setup. `personas.py` reads this on first endpoint hit.
 #
 # Each agent has any number of "slots" — named files the agent runtime

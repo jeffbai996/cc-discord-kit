@@ -1,6 +1,6 @@
 """Pre-send tag handler: called by the Discord plugin before posting an
 assistant message. Reads one JSON op from stdin, executes it against the
-multiagent-tools, prints one JSON result to stdout.
+cc-discord-kit, prints one JSON result to stdout.
 
 Input shape:
   {"op": "memory_save",   "body": "...", "type": "feedback", "name": "",

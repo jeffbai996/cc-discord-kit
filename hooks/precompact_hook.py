@@ -39,28 +39,28 @@ import urllib.request
 from typing import Any
 
 # Routing:
-#   - MULTIAGENT_URL set → POST to <URL>/api/journal (HTTP-mode caller)
+#   - CCDK_URL set → POST to <URL>/api/journal (HTTP-mode caller)
 #   - else                → import store.py and write directly (local-mode caller)
-MULTIAGENT_URL = os.environ.get("MULTIAGENT_URL", "").rstrip("/")
+CCDK_URL = os.environ.get("CCDK_URL", "").rstrip("/")
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _MODULE_PARENT = os.path.dirname(_HERE)
 
 store = None
-if not MULTIAGENT_URL:
+if not CCDK_URL:
     sys.path.insert(0, _MODULE_PARENT)
     import store  # noqa: E402
 
 LOG_PATH = os.path.join(_HERE, "precompact_hook.log")
 # Fall back to a writeable spot if the script lives in a read-only location
 if not os.access(_HERE, os.W_OK):
-    LOG_PATH = os.path.expanduser("~/.local/share/multiagent-tools/precompact_hook.log")
+    LOG_PATH = os.path.expanduser("~/.local/share/cc-discord-kit/precompact_hook.log")
 
-# Bot identity. Set MULTIAGENT_BOT in env for explicit naming. Otherwise:
+# Bot identity. Set CCDK_BOT in env for explicit naming. Otherwise:
 # 1) derive from CLAUDE_CONFIG_DIR last path segment (e.g. ~/.claude-other → "claude-other")
 # 2) fall back to hostname.
 HOST = socket.gethostname()
-explicit = os.environ.get("MULTIAGENT_BOT", "").strip()
+explicit = os.environ.get("CCDK_BOT", "").strip()
 if explicit:
     BOT_NAME = explicit
 else:
@@ -197,8 +197,8 @@ def build_summary(entries: list[dict]) -> str:
 
 
 def _add_journal_http(text: str, source: str, actor: str, tags: list[str]) -> None:
-    """POST to <MULTIAGENT_URL>/api/journal. Best-effort: log + swallow errors."""
-    url = f"{MULTIAGENT_URL}/api/journal"
+    """POST to <CCDK_URL>/api/journal. Best-effort: log + swallow errors."""
+    url = f"{CCDK_URL}/api/journal"
     body = json.dumps({
         "text": text, "source": source, "actor": actor, "tags": tags,
     }).encode("utf-8")
@@ -208,7 +208,7 @@ def _add_journal_http(text: str, source: str, actor: str, tags: list[str]) -> No
         data=body,
         headers={
             "Content-Type": "application/json",
-            "User-Agent": "cc-precompact-hook (multiagent-tools, 1.0)",
+            "User-Agent": "cc-precompact-hook (cc-discord-kit, 1.0)",
         },
     )
     try:
@@ -222,8 +222,8 @@ def _add_journal_http(text: str, source: str, actor: str, tags: list[str]) -> No
 
 
 def _add_journal(text: str, source: str, actor: str, tags: list[str]) -> None:
-    """Route through HTTP if MULTIAGENT_URL is set, else direct import."""
-    if MULTIAGENT_URL:
+    """Route through HTTP if CCDK_URL is set, else direct import."""
+    if CCDK_URL:
         _add_journal_http(text, source, actor, tags)
     else:
         store.add_journal(text, source=source, actor=actor, tags=tags)

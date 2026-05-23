@@ -46,7 +46,7 @@ import urllib.request
 # idle_prompt removed 2026-04-29 — bots are idle most of the time, 🌙 was clutter.
 ACTIONABLE_TYPES = {"permission_prompt", "elicitation_dialog"}
 
-_STATE_DIR = os.path.expanduser("~/.local/state/multiagent-tools")
+_STATE_DIR = os.path.expanduser("~/.local/state/cc-discord-kit")
 try:
     os.makedirs(_STATE_DIR, exist_ok=True)
 except OSError:
@@ -62,10 +62,10 @@ CHANNEL_TAG_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Agent identity. MULTIAGENT_BOT in env wins; otherwise derive from
+# Agent identity. CCDK_BOT in env wins; otherwise derive from
 # CLAUDE_CONFIG_DIR basename or fall back to "agent".
 def _agent_name() -> str:
-    explicit = os.environ.get("MULTIAGENT_BOT", "").strip()
+    explicit = os.environ.get("CCDK_BOT", "").strip()
     if explicit:
         return explicit
     cfg = os.environ.get("CLAUDE_CONFIG_DIR", "").rstrip("/")
@@ -164,7 +164,7 @@ def _discord_post(token: str, channel_id: str, content: str) -> bool:
         headers={
             "Authorization": f"Bot {token}",
             "Content-Type": "application/json",
-            "User-Agent": "multiagent-tools-notify-hook (1.0)",
+            "User-Agent": "cc-discord-kit-notify-hook (1.0)",
         },
     )
     try:

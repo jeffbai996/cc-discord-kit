@@ -23,8 +23,8 @@ LOG_PATH = os.path.join(store.DATA_DIR, "boot_hook.log")
 
 
 def _detect_bot() -> str | None:
-    """Override with MULTIAGENT_BOT, else derive from CLAUDE_CONFIG_DIR."""
-    explicit = os.environ.get("MULTIAGENT_BOT", "").strip()
+    """Override with CCDK_BOT, else derive from CLAUDE_CONFIG_DIR."""
+    explicit = os.environ.get("CCDK_BOT", "").strip()
     if explicit:
         return explicit
     cfg = os.environ.get("CLAUDE_CONFIG_DIR", "")

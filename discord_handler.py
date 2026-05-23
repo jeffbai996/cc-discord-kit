@@ -1,4 +1,4 @@
-"""Standalone Discord bot exposing multiagent-tools as slash commands.
+"""Standalone Discord bot exposing cc-discord-kit as slash commands.
 
 Zero Claude tokens — this bot owns its own connection, calls store.py
 directly, and replies in <500ms. Runs as a systemd user service.
@@ -14,12 +14,12 @@ Slash commands:
   /journal add  <text> [actor] [tags]
   /journal search <term>
 
-Env vars (loaded from $HOME/.config/multiagent-tools/env):
-  MULTIAGENT_DISCORD_TOKEN  — bot token
-  MULTIAGENT_GUILD_IDS      — optional CSV of guild IDs for instant
+Env vars (loaded from $HOME/.config/cc-discord-kit/env):
+  CCDK_DISCORD_TOKEN  — bot token
+  CCDK_GUILD_IDS      — optional CSV of guild IDs for instant
                               per-server command sync. Without this, slash
                               commands sync globally (~1hr propagation).
-  MULTIAGENT_DATA_DIR       — passed through to store.py (data files location)
+  CCDK_DATA_DIR       — passed through to store.py (data files location)
 """
 
 from __future__ import annotations
@@ -40,8 +40,8 @@ logging.basicConfig(
 )
 log = logging.getLogger("multiagent-discord")
 
-TOKEN = os.environ.get("MULTIAGENT_DISCORD_TOKEN", "")
-GUILD_IDS_RAW = os.environ.get("MULTIAGENT_GUILD_IDS", "")
+TOKEN = os.environ.get("CCDK_DISCORD_TOKEN", "")
+GUILD_IDS_RAW = os.environ.get("CCDK_GUILD_IDS", "")
 GUILD_IDS = [int(g.strip()) for g in GUILD_IDS_RAW.split(",") if g.strip().isdigit()]
 
 
@@ -154,7 +154,7 @@ client = MultiagentClient()
 
 # ─────────────────────────── /mem command group ───────────────────────────
 
-mem_group = app_commands.Group(name="mem", description="multiagent-tools memories")
+mem_group = app_commands.Group(name="mem", description="cc-discord-kit memories")
 
 
 @mem_group.command(name="list", description="list memories with optional filters")
@@ -250,7 +250,7 @@ async def mem_delete(interaction: discord.Interaction, id: int) -> None:
 
 # ─────────────────────────── /journal command group ───────────────────────────
 
-jou_group = app_commands.Group(name="journal", description="multiagent-tools journal")
+jou_group = app_commands.Group(name="journal", description="cc-discord-kit journal")
 
 
 @jou_group.command(name="list", description="list journal entries")
@@ -319,7 +319,7 @@ async def on_ready() -> None:
 
 def main() -> int:
     if not TOKEN:
-        log.error("MULTIAGENT_DISCORD_TOKEN not set in env")
+        log.error("CCDK_DISCORD_TOKEN not set in env")
         return 1
     client.run(TOKEN, log_handler=None)
     return 0

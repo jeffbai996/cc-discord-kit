@@ -2,7 +2,7 @@
 
 Each test uses the `fresh_store` fixture from conftest.py, which reloads
 store + history with a temp DATA_DIR. That keeps tests fully isolated and
-prevents touching real multiagent-tools data.
+prevents touching real cc-discord-kit data.
 """
 
 from __future__ import annotations

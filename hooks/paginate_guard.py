@@ -30,7 +30,7 @@ Pass-through cases (hook returns 0):
 Env vars:
   MAT_PAGINATE_GUARD_LIMIT  override the 1900-char threshold (must be int)
   MAT_PAGINATE_GUARD_LOG    override the log path
-                            default ~/.local/state/multiagent-tools/paginate_guard.log
+                            default ~/.local/state/cc-discord-kit/paginate_guard.log
 """
 
 from __future__ import annotations
@@ -58,7 +58,7 @@ def _log_path() -> str:
     explicit = os.environ.get("MAT_PAGINATE_GUARD_LOG")
     if explicit:
         return explicit
-    state_dir = os.path.expanduser("~/.local/state/multiagent-tools")
+    state_dir = os.path.expanduser("~/.local/state/cc-discord-kit")
     try:
         os.makedirs(state_dir, exist_ok=True)
     except OSError:

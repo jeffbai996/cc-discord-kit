@@ -1,4 +1,4 @@
-"""Flask web UI + HTTP API for multiagent-tools.
+"""Flask web UI + HTTP API for cc-discord-kit.
 
 Routes:
   GET    /                    HTML index of memories with filters
@@ -50,9 +50,9 @@ app.config["JSON_AS_ASCII"] = False  # render CJK / emoji as-is
 
 # Behind a reverse proxy with a stripped path prefix (e.g. tailscale serve
 # --set-path=/multiagent), the browser hits /multiagent/... but Flask
-# receives /...  Set MULTIAGENT_URL_PREFIX=/multiagent so url_for() emits
+# receives /...  Set CCDK_URL_PREFIX=/multiagent so url_for() emits
 # the public paths.
-_url_prefix = os.environ.get("MULTIAGENT_URL_PREFIX", "").rstrip("/")
+_url_prefix = os.environ.get("CCDK_URL_PREFIX", "").rstrip("/")
 if _url_prefix:
     app.config["APPLICATION_ROOT"] = _url_prefix
 
@@ -108,12 +108,12 @@ def _post_card(action: dict) -> None:
             action,
             chat_id,
             reply_to=message_id,
-            user_agent="multiagent-tools-api (1.0)",
+            user_agent="cc-discord-kit-api (1.0)",
         )
         if not ok and err:
-            print(f"[multiagent-tools card post failed] {err}", file=sys.stderr)
+            print(f"[cc-discord-kit card post failed] {err}", file=sys.stderr)
     except Exception as e:
-        print(f"[multiagent-tools card post crashed] {type(e).__name__}: {e}",
+        print(f"[cc-discord-kit card post crashed] {type(e).__name__}: {e}",
               file=sys.stderr)
 
 
@@ -1036,8 +1036,8 @@ app.jinja_env.filters["type_label"] = _type_label
 
 
 def main() -> None:
-    host = os.environ.get("MULTIAGENT_HOST", "127.0.0.1")
-    port = int(os.environ.get("MULTIAGENT_PORT", "5005"))
+    host = os.environ.get("CCDK_HOST", "127.0.0.1")
+    port = int(os.environ.get("CCDK_PORT", "5005"))
     app.run(host=host, port=port, debug=False)
 
 

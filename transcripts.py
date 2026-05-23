@@ -5,9 +5,9 @@ digest.py, stores per-channel per-day JSONL files, and writes markdown shadow
 files that external search tools can index.
 
 Env:
-  MULTIAGENT_TRANSCRIPTS_DIR             storage dir
-  MULTIAGENT_TRANSCRIPTS_POLL_INTERVAL   seconds between --watch polls
-  MULTIAGENT_TRANSCRIPTS_RETENTION_DAYS  prune older than this, default 365
+  CCDK_TRANSCRIPTS_DIR             storage dir
+  CCDK_TRANSCRIPTS_POLL_INTERVAL   seconds between --watch polls
+  CCDK_TRANSCRIPTS_RETENTION_DAYS  prune older than this, default 365
 """
 
 from __future__ import annotations
@@ -28,12 +28,12 @@ from digest import DIGEST_CHANNELS, _fetch_channel, _load_token  # noqa: E402
 log = logging.getLogger(__name__)
 
 TRANSCRIPTS_DIR = Path(os.environ.get(
-    "MULTIAGENT_TRANSCRIPTS_DIR",
-    os.path.expanduser("~/.local/share/multiagent-tools/transcripts"),
+    "CCDK_TRANSCRIPTS_DIR",
+    os.path.expanduser("~/.local/share/cc-discord-kit/transcripts"),
 ))
 STATE_FILE = TRANSCRIPTS_DIR / "state.json"
-POLL_INTERVAL_SEC = int(os.environ.get("MULTIAGENT_TRANSCRIPTS_POLL_INTERVAL", "300"))
-RETENTION_DAYS = int(os.environ.get("MULTIAGENT_TRANSCRIPTS_RETENTION_DAYS", "365"))
+POLL_INTERVAL_SEC = int(os.environ.get("CCDK_TRANSCRIPTS_POLL_INTERVAL", "300"))
+RETENTION_DAYS = int(os.environ.get("CCDK_TRANSCRIPTS_RETENTION_DAYS", "365"))
 DISCORD_EPOCH_MS = 1420070400000
 _DAY_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})\.(jsonl|md)$")
 

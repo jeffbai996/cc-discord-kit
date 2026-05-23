@@ -62,7 +62,7 @@ from narrate import (  # noqa: E402
     count_discord_replies,
 )
 
-_STATE_DIR = os.path.expanduser("~/.local/state/multiagent-tools")
+_STATE_DIR = os.path.expanduser("~/.local/state/cc-discord-kit")
 try:
     os.makedirs(_STATE_DIR, exist_ok=True)
 except OSError:

@@ -1,7 +1,7 @@
-"""Shared Discord card rendering + posting for multiagent-tools actions.
+"""Shared Discord card rendering + posting for cc-discord-kit actions.
 
 Both the Stop hook (when a bot emits a [MEMORY:]/[JOURNAL:] tag) and the
-CLI (`multiagent-tools memory add|edit|delete` with --discord-* flags) post
+CLI (`cc-discord-kit memory add|edit|delete` with --discord-* flags) post
 the same rendered card to Discord. Sharing the format here keeps them
 byte-for-byte consistent — drift between hook and CLI was the original
 bug that motivated this module.
@@ -195,7 +195,7 @@ def read_bot_token() -> str | None:
     """Read DISCORD_BOT_TOKEN.
 
     Resolution order:
-      1. $MULTIAGENT_DISCORD_TOKEN — explicit token override
+      1. $CCDK_DISCORD_TOKEN — explicit token override
       2. $DISCORD_STATE_DIR/.env — multi-agent setups where each bot has
          its own state dir but shares CLAUDE_CONFIG_DIR. Priority over
          CLAUDE_CONFIG_DIR so per-bot overrides actually apply.
@@ -203,7 +203,7 @@ def read_bot_token() -> str | None:
       4. $CLAUDE_CONFIG_DIR/channels/discord/.env
       5. ~/.claude/channels/discord/.env (default agent)
     """
-    explicit = os.environ.get("MULTIAGENT_DISCORD_TOKEN", "").strip()
+    explicit = os.environ.get("CCDK_DISCORD_TOKEN", "").strip()
     if explicit:
         return explicit
 
@@ -234,7 +234,7 @@ def read_bot_token() -> str | None:
 
 def post_message(token: str, channel_id: str, content: str,
                  reply_to: str | None = None,
-                 user_agent: str = "multiagent-tools-card (1.0)") -> tuple[bool, str]:
+                 user_agent: str = "cc-discord-kit-card (1.0)") -> tuple[bool, str]:
     """POST /channels/<id>/messages. Returns (ok, error_message_if_failed).
 
     Best-effort, single-shot, no retry — if the network's flaky, the user
@@ -276,7 +276,7 @@ def post_message(token: str, channel_id: str, content: str,
 
 def post_action_card(action: dict, chat_id: str,
                      reply_to: str | None = None,
-                     user_agent: str = "multiagent-tools-card (1.0)") -> tuple[bool, str]:
+                     user_agent: str = "cc-discord-kit-card (1.0)") -> tuple[bool, str]:
     """Render and post a card for one action. Returns (ok, error).
 
     `ok=False, error=""` means the action wasn't renderable (e.g. delete

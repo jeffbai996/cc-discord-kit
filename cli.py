@@ -1,29 +1,29 @@
 #!/usr/bin/env python3
-"""multiagent-tools CLI. Manages memories.json + journal.json from the shell.
+"""cc-discord-kit CLI. Manages memories.json + journal.json from the shell.
 
 Usage:
-  multiagent-tools memory list [--type TYPE] [--about LABEL]... [--bot NAME] [--all]
-  multiagent-tools memory show <id>
-  multiagent-tools memory add <text> [--type TYPE] [--name NAME] [--tags a,b,c]
+  cc-discord-kit memory list [--type TYPE] [--about LABEL]... [--bot NAME] [--all]
+  cc-discord-kit memory show <id>
+  cc-discord-kit memory add <text> [--type TYPE] [--name NAME] [--tags a,b,c]
                                 [--about a,b] [--bot a,b]
-  multiagent-tools memory edit <id> <text>
-  multiagent-tools memory delete <id>
-  multiagent-tools memory search <term> [--about LABEL]... [--bot NAME] [--all]
+  cc-discord-kit memory edit <id> <text>
+  cc-discord-kit memory delete <id>
+  cc-discord-kit memory search <term> [--about LABEL]... [--bot NAME] [--all]
 
-  multiagent-tools journal list [--days N]
-  multiagent-tools journal show <id>
-  multiagent-tools journal add <text> [--source SRC] [--actor A] [--tags a,b,c]
-  multiagent-tools journal edit <id> [<text>] [--actor A] [--source SRC] [--tags a,b,c]
-  multiagent-tools journal delete <id>
-  multiagent-tools journal search <term>
+  cc-discord-kit journal list [--days N]
+  cc-discord-kit journal show <id>
+  cc-discord-kit journal add <text> [--source SRC] [--actor A] [--tags a,b,c]
+  cc-discord-kit journal edit <id> [<text>] [--actor A] [--source SRC] [--tags a,b,c]
+  cc-discord-kit journal delete <id>
+  cc-discord-kit journal search <term>
 
-  multiagent-tools persona list
-  multiagent-tools persona show <bot> <slot>
-  multiagent-tools persona edit <bot> <slot>           # opens $EDITOR
-  multiagent-tools persona write <bot> <slot> <text>   # write directly
+  cc-discord-kit persona list
+  cc-discord-kit persona show <bot> <slot>
+  cc-discord-kit persona edit <bot> <slot>           # opens $EDITOR
+  cc-discord-kit persona write <bot> <slot> <text>   # write directly
 
-When MULTIAGENT_URL is set in env, this CLI shells out to client.py and
-talks to the multiagent-tools HTTP server at that URL instead of touching local
+When CCDK_URL is set in env, this CLI shells out to client.py and
+talks to the cc-discord-kit HTTP server at that URL instead of touching local
 files. Output format is identical either way.
 
 Run with no args for help.
@@ -38,8 +38,8 @@ import unicodedata
 
 
 def _maybe_proxy() -> None:
-    """If MULTIAGENT_URL is set, hand off to client.py and exit."""
-    url = os.environ.get("MULTIAGENT_URL", "").strip()
+    """If CCDK_URL is set, hand off to client.py and exit."""
+    url = os.environ.get("CCDK_URL", "").strip()
     if not url:
         return
     here = os.path.dirname(os.path.abspath(__file__))
@@ -169,12 +169,12 @@ def _parse_csv(value: str | None) -> list[str]:
 
 
 def _detect_calling_bot() -> str | None:
-    """Best-effort agent name. Override with MULTIAGENT_BOT in env.
+    """Best-effort agent name. Override with CCDK_BOT in env.
 
     Fallback: derive from CLAUDE_CONFIG_DIR last path segment if set
     (e.g. ~/.claude-alt → "claude-alt"). Works for any naming scheme.
     """
-    explicit = os.environ.get("MULTIAGENT_BOT", "").strip()
+    explicit = os.environ.get("CCDK_BOT", "").strip()
     if explicit:
         return explicit
     cfg = os.environ.get("CLAUDE_CONFIG_DIR", "")
@@ -575,7 +575,7 @@ def _add_discord_flags(parser: argparse.ArgumentParser) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="multiagent-tools",
+    p = argparse.ArgumentParser(prog="cc-discord-kit",
                                 description="Shared memory + journal for multi-agent setups")
     top = p.add_subparsers(dest="cmd", required=True)
 

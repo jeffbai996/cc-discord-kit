@@ -7,8 +7,8 @@ filename patterns.
 
 Env:
   VECGREP_URL                  default http://127.0.0.1:8765
-  VECGREP_CORPUS_MEMORIES      default multiagent-tools
-  VECGREP_CORPUS_JOURNAL       default multiagent-tools
+  VECGREP_CORPUS_MEMORIES      default cc-discord-kit
+  VECGREP_CORPUS_JOURNAL       default cc-discord-kit
   VECGREP_TOP_K                default 10
 """
 
@@ -21,8 +21,8 @@ import urllib.error
 import urllib.request
 
 VECGREP_URL = os.environ.get("VECGREP_URL", "http://127.0.0.1:8765").rstrip("/")
-VECGREP_CORPUS_MEMORIES = os.environ.get("VECGREP_CORPUS_MEMORIES", "multiagent-tools")
-VECGREP_CORPUS_JOURNAL = os.environ.get("VECGREP_CORPUS_JOURNAL", "multiagent-tools")
+VECGREP_CORPUS_MEMORIES = os.environ.get("VECGREP_CORPUS_MEMORIES", "cc-discord-kit")
+VECGREP_CORPUS_JOURNAL = os.environ.get("VECGREP_CORPUS_JOURNAL", "cc-discord-kit")
 SEARCH_TIMEOUT_SEC = 5
 TOP_K_DEFAULT = int(os.environ.get("VECGREP_TOP_K", "10"))
 

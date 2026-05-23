@@ -4,13 +4,13 @@ Pull-model digest: no LLM, no cron. The web UI calls fetch_window() on page
 load, the user reads the messages, types a digest paragraph, and the route
 saves it as a journal entry.
 
-Discord token is loaded from `~/.config/multiagent-tools/env`
-(`MULTIAGENT_DISCORD_TOKEN`). The bot user behind that token must (1) be a
+Discord token is loaded from `~/.config/cc-discord-kit/env`
+(`CCDK_DISCORD_TOKEN`). The bot user behind that token must (1) be a
 member of every channel listed in DIGEST_CHANNELS, and (2) have the
 Message Content intent enabled in the Discord developer portal — without
 it, message bodies come back empty.
 
-Channels are read from the same env file (MULTIAGENT_DIGEST_CHANNELS, a
+Channels are read from the same env file (CCDK_DIGEST_CHANNELS, a
 comma-separated list of "name:id" pairs) so this module ships without
 hardcoded server data.
 """
@@ -27,9 +27,9 @@ from typing import TypedDict
 
 DISCORD_API = "https://discord.com/api/v10"
 
-ENV_FILE = os.path.expanduser("~/.config/multiagent-tools/env")
-DISCORD_TOKEN_VAR = "MULTIAGENT_DISCORD_TOKEN"
-DIGEST_CHANNELS_VAR = "MULTIAGENT_DIGEST_CHANNELS"
+ENV_FILE = os.path.expanduser("~/.config/cc-discord-kit/env")
+DISCORD_TOKEN_VAR = "CCDK_DISCORD_TOKEN"
+DIGEST_CHANNELS_VAR = "CCDK_DIGEST_CHANNELS"
 
 
 def _read_env_var(name: str) -> str | None:
@@ -51,7 +51,7 @@ def _read_env_var(name: str) -> str | None:
 
 
 def _load_digest_channels() -> dict[str, str]:
-    """Parse `MULTIAGENT_DIGEST_CHANNELS=name1:id1,name2:id2`."""
+    """Parse `CCDK_DIGEST_CHANNELS=name1:id1,name2:id2`."""
     raw = _read_env_var(DIGEST_CHANNELS_VAR)
     if not raw:
         return {}
@@ -87,7 +87,7 @@ class Message(TypedDict):
 
 
 def _load_token() -> str | None:
-    """Read MULTIAGENT_DISCORD_TOKEN from env or env file."""
+    """Read CCDK_DISCORD_TOKEN from env or env file."""
     return _read_env_var(DISCORD_TOKEN_VAR)
 
 
@@ -110,7 +110,7 @@ def _fetch_channel(channel_id: str, after_ms: int, token: str) -> list[dict]:
             url,
             headers={
                 "Authorization": f"Bot {token}",
-                "User-Agent": "multiagent-tools digest (python urllib)",
+                "User-Agent": "cc-discord-kit digest (python urllib)",
             },
         )
         try:

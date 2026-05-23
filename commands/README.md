@@ -1,4 +1,4 @@
-# multiagent-tools slash commands
+# cc-discord-kit slash commands
 
 Files in this directory are dispatchable as Discord `/slash` commands via the
 discord-passthrough hook (`hooks/discord_passthrough.py`).

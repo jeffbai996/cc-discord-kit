@@ -1,6 +1,6 @@
 """Shared pytest fixtures.
 
-We point MULTIAGENT_DATA_DIR at a tmp_path BEFORE importing store/history,
+We point CCDK_DATA_DIR at a tmp_path BEFORE importing store/history,
 so DATA_DIR resolves to the test dir and we never touch the user's real
 data files. Each test gets a fresh JsonStore cache and a fresh edits.jsonl.
 """
@@ -17,9 +17,9 @@ import pytest
 @pytest.fixture
 def fresh_store(tmp_path, monkeypatch):
     """Reload store + history pointed at a clean tmp dir. Returns (store, history)."""
-    monkeypatch.setenv("MULTIAGENT_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CCDK_DATA_DIR", str(tmp_path))
 
-    # Make sure 'multiagent-tools' module dir is on sys.path so `import store` works
+    # Make sure 'cc-discord-kit' module dir is on sys.path so `import store` works
     # from the tests/ subdir.
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     if project_root not in sys.path:

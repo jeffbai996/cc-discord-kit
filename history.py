@@ -1,4 +1,4 @@
-"""Edit/delete history for the multiagent-tools.
+"""Edit/delete history for the cc-discord-kit.
 
 Why this exists: web routes mutate memories.json and journal.json with no undo.
 Every edit and delete done through the web UI gets a JSONL line in edits.jsonl
@@ -13,7 +13,7 @@ Direct CLI / Discord / hook calls into store.py do NOT pass through here. That's
 intentional — history capture is best-effort, scoped to the web surface where
 fat-finger risk is highest.
 
-File location matches store.py's data dir (DATA_DIR), so MULTIAGENT_DATA_DIR
+File location matches store.py's data dir (DATA_DIR), so CCDK_DATA_DIR
 overrides apply automatically. File: edits.jsonl, capped at 5000 lines via
 truncate-and-rename after each append.
 """

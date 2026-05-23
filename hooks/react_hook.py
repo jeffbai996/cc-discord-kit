@@ -23,9 +23,9 @@ HTTP timeouts. Failures are logged and never propagate.
 
 Env vars:
   MAT_REACT_HOOK_LOG    override log path
-                        (default ~/.local/state/multiagent-tools/react_hook.log)
+                        (default ~/.local/state/cc-discord-kit/react_hook.log)
   MAT_REACT_HOOK_STATE  override per-message idempotency state path
-                        (default ~/.local/state/multiagent-tools/react_hook_state.json)
+                        (default ~/.local/state/cc-discord-kit/react_hook_state.json)
   DISCORD_STATE_DIR     explicit override for the bot's channel state dir
                         (default <CLAUDE_CONFIG_DIR>/channels/discord)
 """
@@ -46,7 +46,7 @@ from typing import Any
 
 def _state_root() -> str:
     """Shared root for log + state files. Created on demand."""
-    state_dir = os.path.expanduser("~/.local/state/multiagent-tools")
+    state_dir = os.path.expanduser("~/.local/state/cc-discord-kit")
     try:
         os.makedirs(state_dir, exist_ok=True)
     except OSError:
@@ -426,7 +426,7 @@ def _discord_reaction_call(
         headers={
             "Authorization": f"Bot {token}",
             "Content-Length": "0",
-            "User-Agent": "multiagent-tools-react-hook (1.2)",
+            "User-Agent": "cc-discord-kit-react-hook (1.2)",
         },
     )
     try:

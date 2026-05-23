@@ -7,10 +7,10 @@ Originally built to coordinate several Claude Code agents talking through Discor
 ## What's in here
 
 - `store.py` — JSON-backed memory + journal store (Python lib). Memories are durable facts (cap 200), journal entries are pinned moments (cap 1000). Atomic writes, last-writer-wins.
-- `cli.py` — local CLI: `multiagent-tools memory list|show|add|edit|delete|search` and same for `journal`/`persona`.
-- `client.py` — HTTP-mode CLI: same commands, but talks to the Flask server when `MULTIAGENT_URL` is set. Lets agents on remote hosts use the store transparently.
+- `cli.py` — local CLI: `cc-discord-kit memory list|show|add|edit|delete|search` and same for `journal`/`persona`.
+- `client.py` — HTTP-mode CLI: same commands, but talks to the Flask server when `CCDK_URL` is set. Lets agents on remote hosts use the store transparently.
 - `server.py` — Flask web UI + JSON API on `127.0.0.1:<port>`. ⌘K palette; per-page editors; markdown rendering; optional vecgrep semantic search; pinning, trash, edit history, merge.
-- `personas.py` — registry of "where each agent keeps its persona files." Loaded from `~/.config/multiagent-tools/agents.yaml` (see `agents.example.yaml`). Files in a configured git repo auto-commit on save.
+- `personas.py` — registry of "where each agent keeps its persona files." Loaded from `~/.config/cc-discord-kit/agents.yaml` (see `agents.example.yaml`). Files in a configured git repo auto-commit on save.
 - `digest.py` — pulls recent Discord channel history for human review (no LLM, no cron). Optional `/digest/summarize` endpoint hits Gemini if `GEMINI_API_KEY` is set.
 - `inventory.py` — live read of hooks (`settings.json`), crontab, systemd user units, launchd agents across each configured host. Cached 30s. Source of truth stays in canonical files; this module never writes.
 - `discord_handler.py` — Discord slash-command bot exposing `/mem` and `/journal`. Optional.
@@ -24,7 +24,7 @@ git clone https://github.com/<you>/cc-discord-kit.git
 cd cc-discord-kit
 python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
-cp agents.example.yaml ~/.config/multiagent-tools/agents.yaml
+cp agents.example.yaml ~/.config/cc-discord-kit/agents.yaml
 # Edit agents.yaml to point at your real persona-file paths.
 ```
 
@@ -48,53 +48,53 @@ All env vars optional unless noted.
 
 | Env var | Read by | Purpose |
 | --- | --- | --- |
-| `MULTIAGENT_DATA_DIR` | `store.py` | dir holding `memories.json` + `journal.json`. Default `~/.local/share/multiagent-tools/`. |
-| `MULTIAGENT_AGENTS_FILE` | `personas.py` | path to `agents.yaml`. Default `~/.config/multiagent-tools/agents.yaml`. |
-| `MULTIAGENT_URL` | `client.py` | when set, CLI runs in HTTP mode against this base URL instead of touching JSON files locally. |
-| `MULTIAGENT_HOST` / `MULTIAGENT_PORT` | `server.py` | Flask bind. Default `127.0.0.1:5005`. **Don't bind to 0.0.0.0** — this is a personal store, not a public service. |
-| `MULTIAGENT_URL_PREFIX` | `server.py` | for hosting under a path (e.g. `/multiagent-tools` behind a reverse proxy). |
-| `MULTIAGENT_BOT` | `cli.py`, hooks | explicit agent identity. Otherwise auto-detected from `CLAUDE_CONFIG_DIR` last segment, then hostname. |
-| `MULTIAGENT_DISCORD_TOKEN` | `digest.py`, `discord_handler.py`, `hooks/stop_hook.py` | bot token for the discord side. `stop_hook` uses it to post save/edit/delete confirmation cards back to the originating channel. |
-| `MULTIAGENT_GUILD_IDS` | `discord_handler.py` | optional CSV of Discord guild IDs for instant per-server slash command sync. Without this, slash commands sync globally (~1hr propagation). |
-| `MULTIAGENT_DIGEST_CHANNELS` | `digest.py` | comma-separated `name:id` pairs for digest pull. |
-| `MULTIAGENT_SETTINGS_PATHS` | `inventory.py` | optional CSV of extra Claude Code `settings.json` paths to probe for hook chains. |
+| `CCDK_DATA_DIR` | `store.py` | dir holding `memories.json` + `journal.json`. Default `~/.local/share/cc-discord-kit/`. |
+| `CCDK_AGENTS_FILE` | `personas.py` | path to `agents.yaml`. Default `~/.config/cc-discord-kit/agents.yaml`. |
+| `CCDK_URL` | `client.py` | when set, CLI runs in HTTP mode against this base URL instead of touching JSON files locally. |
+| `CCDK_HOST` / `CCDK_PORT` | `server.py` | Flask bind. Default `127.0.0.1:5005`. **Don't bind to 0.0.0.0** — this is a personal store, not a public service. |
+| `CCDK_URL_PREFIX` | `server.py` | for hosting under a path (e.g. `/cc-discord-kit` behind a reverse proxy). |
+| `CCDK_BOT` | `cli.py`, hooks | explicit agent identity. Otherwise auto-detected from `CLAUDE_CONFIG_DIR` last segment, then hostname. |
+| `CCDK_DISCORD_TOKEN` | `digest.py`, `discord_handler.py`, `hooks/stop_hook.py` | bot token for the discord side. `stop_hook` uses it to post save/edit/delete confirmation cards back to the originating channel. |
+| `CCDK_GUILD_IDS` | `discord_handler.py` | optional CSV of Discord guild IDs for instant per-server slash command sync. Without this, slash commands sync globally (~1hr propagation). |
+| `CCDK_DIGEST_CHANNELS` | `digest.py` | comma-separated `name:id` pairs for digest pull. |
+| `CCDK_SETTINGS_PATHS` | `inventory.py` | optional CSV of extra Claude Code `settings.json` paths to probe for hook chains. |
 | `GEMINI_API_KEY` | `digest.py` | enables the optional auto-summarize button on the digest page. |
 | `VECGREP_URL` | `vecgrep_client.py` | optional vecgrep endpoint for semantic search. Default `http://127.0.0.1:8765`. |
-| `VECGREP_CORPUS_MEMORIES` / `VECGREP_CORPUS_JOURNAL` | `vecgrep_client.py` | optional corpus names. Default `multiagent-tools`. |
-| `MAT_OWNER_DISCORD_USER_ID` | `hooks/discord_passthrough.py` | the Discord `user_id` allowed to run `!cmd` and `/cmd` pass-through. Required for the hook to activate (fails closed). Alternatively place the same value in `~/.config/multiagent-tools/owner_id`. |
-| `MAT_OWNER_ID_FILE` | `hooks/discord_passthrough.py` | override the owner_id file path. Default `~/.config/multiagent-tools/owner_id`. |
+| `VECGREP_CORPUS_MEMORIES` / `VECGREP_CORPUS_JOURNAL` | `vecgrep_client.py` | optional corpus names. Default `cc-discord-kit`. |
+| `MAT_OWNER_DISCORD_USER_ID` | `hooks/discord_passthrough.py` | the Discord `user_id` allowed to run `!cmd` and `/cmd` pass-through. Required for the hook to activate (fails closed). Alternatively place the same value in `~/.config/cc-discord-kit/owner_id`. |
+| `MAT_OWNER_ID_FILE` | `hooks/discord_passthrough.py` | override the owner_id file path. Default `~/.config/cc-discord-kit/owner_id`. |
 | `MAT_COMMANDS_DIR` | `hooks/discord_passthrough.py` | where to find `/cmd` registry scripts. Default `<repo>/commands/`. |
-| `MAT_PASSTHROUGH_LOG` | `hooks/discord_passthrough.py` | log file path. Default `~/.local/state/multiagent-tools/passthrough.log`. |
+| `MAT_PASSTHROUGH_LOG` | `hooks/discord_passthrough.py` | log file path. Default `~/.local/state/cc-discord-kit/passthrough.log`. |
 
-The env file at `~/.config/multiagent-tools/env` is checked as a fallback for any of the above. Shell-style:
+The env file at `~/.config/cc-discord-kit/env` is checked as a fallback for any of the above. Shell-style:
 
 ```
-MULTIAGENT_DISCORD_TOKEN=...
-MULTIAGENT_DIGEST_CHANNELS=general:111111111111111111,help:222222222222222222
+CCDK_DISCORD_TOKEN=...
+CCDK_DIGEST_CHANNELS=general:111111111111111111,help:222222222222222222
 GEMINI_API_KEY=...
 ```
 
 ## CLI
 
 ```bash
-multiagent-tools memory list                          # all entries
-multiagent-tools memory list --about user             # filter by subject
-multiagent-tools memory list --type feedback          # filter by type
-multiagent-tools memory show 42
-multiagent-tools memory show 42 --body-only
-multiagent-tools memory add "..." --type project --name "X" --tags a,b --about user
+cc-discord-kit memory list                          # all entries
+cc-discord-kit memory list --about user             # filter by subject
+cc-discord-kit memory list --type feedback          # filter by type
+cc-discord-kit memory show 42
+cc-discord-kit memory show 42 --body-only
+cc-discord-kit memory add "..." --type project --name "X" --tags a,b --about user
 
-multiagent-tools journal list
-multiagent-tools journal show 17
-multiagent-tools journal add "..." --actor agent-1 --tags a,b
-multiagent-tools journal edit 17 "updated body" --tags a,b
+cc-discord-kit journal list
+cc-discord-kit journal show 17
+cc-discord-kit journal add "..." --actor agent-1 --tags a,b
+cc-discord-kit journal edit 17 "updated body" --tags a,b
 
-multiagent-tools persona show agent-1 persona.md      # print file contents
-multiagent-tools persona edit agent-1 persona.md      # opens $EDITOR; saves on exit
-multiagent-tools persona write agent-1 persona.md "<text>"  # write directly
+cc-discord-kit persona show agent-1 persona.md      # print file contents
+cc-discord-kit persona edit agent-1 persona.md      # opens $EDITOR; saves on exit
+cc-discord-kit persona write agent-1 persona.md "<text>"  # write directly
 ```
 
-Set `MULTIAGENT_URL=https://your-host:8443/` to run the same commands against a remote server.
+Set `CCDK_URL=https://your-host:8443/` to run the same commands against a remote server.
 
 ## Web UI
 
@@ -140,7 +140,7 @@ Journal entries are similar but simpler — `id, ts, source, actor, text, tags, 
 Use explicit CLI commands for real writes, especially when the request came from Discord:
 
 ```bash
-multiagent-tools memory add \
+cc-discord-kit memory add \
   --type feedback \
   --name "short title" \
   --tags "tag1,tag2" \
@@ -160,12 +160,12 @@ The `hooks/` directory has a full set of Claude Code hooks. Wire any subset into
 
 - **`session_start_hook.py`** (SessionStart) — injects full feedback memories, an index of other memories, and recent journal entries into context on session boot.
 - **`user_prompt_hook.py`** (UserPromptSubmit) — refreshes a compact memory index on each user prompt.
-- **`precompact_hook.py`** (PreCompact) — writes a "what was the last conversation about" snapshot before context compaction. Routes through `MULTIAGENT_URL` if set, else direct import.
-- **`stop_hook.py`** (Stop) — legacy tag-parser save path. **Use CLI commands as the recommended write path** (`multiagent-tools memory add ...`). The Stop hook is retained for back-compat; see [Legacy save-intent gate](#legacy-save-intent-gate) for the syntax. See `SAVES.md` for the rationale and Discord card flow.
+- **`precompact_hook.py`** (PreCompact) — writes a "what was the last conversation about" snapshot before context compaction. Routes through `CCDK_URL` if set, else direct import.
+- **`stop_hook.py`** (Stop) — legacy tag-parser save path. **Use CLI commands as the recommended write path** (`cc-discord-kit memory add ...`). The Stop hook is retained for back-compat; see [Legacy save-intent gate](#legacy-save-intent-gate) for the syntax. See `SAVES.md` for the rationale and Discord card flow.
 
 ### Discord pass-through + slash dispatch
 
-- **`discord_passthrough.py`** (UserPromptSubmit) — intercepts Discord-origin `!cmd` (raw shell) and `/cmd` (registered slash) messages from the configured owner, runs them on the host, replies directly to Discord, blocks the prompt from reaching the model (zero token spend). See `commands/README.md` for the dispatch contract. Owner check: `MAT_OWNER_DISCORD_USER_ID` or `~/.config/multiagent-tools/owner_id`.
+- **`discord_passthrough.py`** (UserPromptSubmit) — intercepts Discord-origin `!cmd` (raw shell) and `/cmd` (registered slash) messages from the configured owner, runs them on the host, replies directly to Discord, blocks the prompt from reaching the model (zero token spend). See `commands/README.md` for the dispatch contract. Owner check: `MAT_OWNER_DISCORD_USER_ID` or `~/.config/cc-discord-kit/owner_id`.
 
 ### Voice surfacing — narrate + tool-watcher
 
@@ -218,7 +218,7 @@ The `hooks/` directory has a full set of Claude Code hooks. Wire any subset into
 
 - **`scrub_tags.py`** (PreToolUse) — mutator on `mcp__plugin_discord_discord__reply`. Strips `[MEMORY:...]`, `[MEMORY_EDIT:…]`, `[MEMORY_DELETE:…]`, `[JOURNAL:…]`, `[JOURNAL_DELETE:…]` tags from outbound `text` so they don't leak visibly into Discord. Stop hook still captures the tags from the transcript.
 
-- **`discord_mention_resolver.py`** (UserPromptSubmit) — resolves `<@USER_ID>` mentions in inbound Discord messages to human-readable names. Roster loaded from `~/.config/multiagent-tools/discord_roster.json` (or `MAT_DISCORD_ROSTER`). The running agent's own ID comes from `MAT_BOT_DISCORD_USER_ID`. Injects a `Discord mentions resolved:` block; adds an explicit warning when this agent was addressed.
+- **`discord_mention_resolver.py`** (UserPromptSubmit) — resolves `<@USER_ID>` mentions in inbound Discord messages to human-readable names. Roster loaded from `~/.config/cc-discord-kit/discord_roster.json` (or `MAT_DISCORD_ROSTER`). The running agent's own ID comes from `MAT_BOT_DISCORD_USER_ID`. Injects a `Discord mentions resolved:` block; adds an explicit warning when this agent was addressed.
 
 ### Lifecycle + system
 
@@ -227,7 +227,7 @@ The `hooks/` directory has a full set of Claude Code hooks. Wire any subset into
 
 ### Env vars (per-hook overrides)
 
-All log + state paths default under `~/.local/state/multiagent-tools/`. Override individually:
+All log + state paths default under `~/.local/state/cc-discord-kit/`. Override individually:
 
 | Var | Hook | What |
 |---|---|---|
@@ -262,7 +262,7 @@ Body text in italics, truncated past 600 chars.
 Multi-paragraph bodies render naturally with blank lines between.
 ```
 
-Cards cover save (`💾`), edit (`✏️`), and delete (`🗑️`) for both memory and journal. The hook reads `DISCORD_BOT_TOKEN` from `MULTIAGENT_DISCORD_TOKEN` first, then falls back to `$CLAUDE_PLUGIN_STATE_DIR/.env` and `~/.claude/channels/discord/.env` so the same setup as the rest of your Discord integration works without extra config.
+Cards cover save (`💾`), edit (`✏️`), and delete (`🗑️`) for both memory and journal. The hook reads `DISCORD_BOT_TOKEN` from `CCDK_DISCORD_TOKEN` first, then falls back to `$CLAUDE_PLUGIN_STATE_DIR/.env` and `~/.claude/channels/discord/.env` so the same setup as the rest of your Discord integration works without extra config.
 
 If no Discord origin is in the user message (e.g. the save happened in a terminal session), no card is posted — the CLI's own `Saved #N` output is the confirmation in that case.
 
@@ -274,8 +274,8 @@ If no Discord origin is in the user message (e.g. the save happened in a termina
 1. Create a Discord application + bot at <https://discord.com/developers/applications>.
 2. Under **OAuth2 → URL Generator**, select scopes `bot` and `applications.commands`. The bot only needs the **default** intents — no Message Content Intent required.
 3. Invite the bot to your server with the generated URL.
-4. Set `MULTIAGENT_DISCORD_TOKEN=<token>` in `~/.config/multiagent-tools/env`.
-5. Optionally set `MULTIAGENT_GUILD_IDS=<csv of guild IDs>` for instant slash-command sync (otherwise it's ~1hr global propagation).
+4. Set `CCDK_DISCORD_TOKEN=<token>` in `~/.config/cc-discord-kit/env`.
+5. Optionally set `CCDK_GUILD_IDS=<csv of guild IDs>` for instant slash-command sync (otherwise it's ~1hr global propagation).
 6. Run `python3 discord_handler.py` (or enable the systemd unit installed by `install.sh`).
 
 ## Tests
@@ -285,7 +285,7 @@ pip install pytest
 pytest tests/
 ```
 
-Tests are fully isolated from your real data dir (`MULTIAGENT_DATA_DIR` is
+Tests are fully isolated from your real data dir (`CCDK_DATA_DIR` is
 set to a `tmp_path` in `conftest.py`) and do not touch the network.
 
 ## Inventory probes

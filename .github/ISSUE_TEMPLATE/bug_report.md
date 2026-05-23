@@ -21,7 +21,7 @@ labels: bug
 
 ## Environment
 
-- `multiagent-tools` version:
+- `cc-discord-kit` version:
 - OS + arch:
 - Python version:
 - Install method:

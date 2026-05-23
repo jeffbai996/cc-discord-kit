@@ -31,7 +31,7 @@ Pass-through cases (hook returns 0 with no mutation):
 
 Env vars:
   MAT_SCRUB_TAGS_LOG  override log path
-                      default ~/.local/state/multiagent-tools/scrub_tags.log
+                      default ~/.local/state/cc-discord-kit/scrub_tags.log
 """
 
 from __future__ import annotations
@@ -58,7 +58,7 @@ def _log_path() -> str:
     explicit = os.environ.get("MAT_SCRUB_TAGS_LOG")
     if explicit:
         return explicit
-    state_dir = os.path.expanduser("~/.local/state/multiagent-tools")
+    state_dir = os.path.expanduser("~/.local/state/cc-discord-kit")
     try:
         os.makedirs(state_dir, exist_ok=True)
     except OSError:

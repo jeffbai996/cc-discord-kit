@@ -33,7 +33,7 @@ Discord tags, so any parsing change there propagates here automatically.
 
 Env vars:
   MAT_ECHO_GUARD_LOG  override log path
-                      default ~/.local/state/multiagent-tools/discord_echo_guard.log
+                      default ~/.local/state/cc-discord-kit/discord_echo_guard.log
 """
 
 from __future__ import annotations
@@ -56,7 +56,7 @@ def _log_path() -> str:
     explicit = os.environ.get("MAT_ECHO_GUARD_LOG")
     if explicit:
         return explicit
-    state_dir = os.path.expanduser("~/.local/state/multiagent-tools")
+    state_dir = os.path.expanduser("~/.local/state/cc-discord-kit")
     try:
         os.makedirs(state_dir, exist_ok=True)
     except OSError:

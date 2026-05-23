@@ -7,7 +7,7 @@ labels: enhancement
 
 ## What you'd like to do
 
-<!-- One sentence: the workflow or capability you wish multiagent-tools had. -->
+<!-- One sentence: the workflow or capability you wish cc-discord-kit had. -->
 
 ## Why the existing tool doesn't cover it
 

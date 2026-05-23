@@ -19,12 +19,12 @@ If the message addresses this agent's own ID, an explicit note is added:
 Exit 0 always — never block the turn.
 
 Configuration:
-  Roster: ~/.config/multiagent-tools/discord_roster.json
+  Roster: ~/.config/cc-discord-kit/discord_roster.json
           { "<user_id>": "<display name>", ... }
           Override path with MAT_DISCORD_ROSTER.
 
   Own ID: MAT_BOT_DISCORD_USER_ID  (the running agent's own Discord user_id)
-          Falls back to MULTIAGENT_BOT env / hostname-derived self name if unset.
+          Falls back to CCDK_BOT env / hostname-derived self name if unset.
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ def _roster_path() -> Path:
     explicit = os.environ.get("MAT_DISCORD_ROSTER", "").strip()
     if explicit:
         return Path(explicit).expanduser()
-    return Path("~/.config/multiagent-tools/discord_roster.json").expanduser()
+    return Path("~/.config/cc-discord-kit/discord_roster.json").expanduser()
 
 
 def _load_roster() -> dict[str, str]:
@@ -67,7 +67,7 @@ def _own_id() -> str:
 def _own_name(roster: dict[str, str], own: str) -> str:
     if own and own in roster:
         return roster[own]
-    return os.environ.get("MULTIAGENT_BOT", "").strip() or "this agent"
+    return os.environ.get("CCDK_BOT", "").strip() or "this agent"
 
 
 def main() -> int:

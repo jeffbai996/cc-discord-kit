@@ -25,7 +25,7 @@ Per-channel mode lives in <bot_root>/channels/discord/narrate.json:
 (Legacy "auto" is accepted as an alias for "collapse" and migrated on
 read.) Default is "never" for every channel — opt-in.
 
-Per-turn state lives in ~/.local/state/multiagent-tools/narrate_state.json
+Per-turn state lives in ~/.local/state/cc-discord-kit/narrate_state.json
 keyed by "{bot_id}:{turn_id}":
   { chat_id, placeholder_msg_id, last_transcript_line,
     buffer, mode, finalized }
@@ -38,9 +38,9 @@ transcript so the two hooks stay in lockstep.
 
 Env vars:
   MAT_NARRATE_STATE  override state path
-                     (default ~/.local/state/multiagent-tools/narrate_state.json)
+                     (default ~/.local/state/cc-discord-kit/narrate_state.json)
   MAT_NARRATE_LOG    override log path
-                     (default ~/.local/state/multiagent-tools/narrate.log)
+                     (default ~/.local/state/cc-discord-kit/narrate.log)
 """
 
 from __future__ import annotations
@@ -92,7 +92,7 @@ def _blockquote(text: str) -> str:
 
 
 
-STATE_DIR = os.path.expanduser("~/.local/state/multiagent-tools")
+STATE_DIR = os.path.expanduser("~/.local/state/cc-discord-kit")
 try:
     os.makedirs(STATE_DIR, exist_ok=True)
 except OSError:
@@ -248,7 +248,7 @@ def _discord_request(
     data = None
     headers = {
         "Authorization": f"Bot {token}",
-        "User-Agent": "multiagent-tools-narrate (0.1)",
+        "User-Agent": "cc-discord-kit-narrate (0.1)",
     }
     if body is not None:
         data = json.dumps(body).encode("utf-8")

@@ -1,4 +1,4 @@
-# Contributing to multiagent-tools
+# Contributing to cc-discord-kit
 
 Thanks for considering a contribution.
 
@@ -10,8 +10,8 @@ Thanks for considering a contribution.
 ## Workflow
 
 ```bash
-git clone https://github.com/jeffbai996/multiagent-tools.git
-cd multiagent-tools
+git clone https://github.com/<you>/cc-discord-kit.git
+cd cc-discord-kit
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
