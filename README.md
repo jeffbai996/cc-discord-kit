@@ -1,4 +1,4 @@
-# multiagent-tools
+# cc-discord-kit
 
 A self-hosted shared brain for multi-agent setups: durable memory, journal, persona files, channel digest, and live infrastructure inventory across N hosts. Backing store is plain JSON. UI is a Flask web app with a `⌘K` command palette. Designed to be poked at over the local network or a private tunnel (e.g. tailscale), never the public internet.
 
@@ -20,8 +20,8 @@ Originally built to coordinate several Claude Code agents talking through Discor
 ## Install
 
 ```bash
-git clone https://github.com/<you>/multiagent-tools.git
-cd multiagent-tools
+git clone https://github.com/<you>/cc-discord-kit.git
+cd cc-discord-kit
 python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 cp agents.example.yaml ~/.config/multiagent-tools/agents.yaml
