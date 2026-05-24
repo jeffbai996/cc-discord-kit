@@ -11,6 +11,47 @@ So you can step away from the terminal and still see what your agent is doing, w
 
 ---
 
+## What it looks like
+
+Your agent is running a task in the terminal. Here's the same turn, in your Discord channel:
+
+**It reacts to your message as it works** — one emoji tracks the whole turn:
+
+> 👀 → 🔧 → ✅  *(got it → editing → done)*
+
+**It narrates** — the prose it'd normally only print to the terminal shows up live:
+
+> 🧠 ***Narrating…***
+> \> Looking at the config now. The timeout's hardcoded — I'll pull it into an env var and drop the debug flag while I'm here.
+
+**It shows its tool calls** — from a one-line ticker up to full diffs:
+
+```diff
++ ● Edit(src/config.py)
+  ⎿ [+3, -1]
+- DEBUG = True
++ DEBUG = False
++ TIMEOUT = int(os.environ.get("TIMEOUT", 30))
++ ● Bash(npm test)
+- ● Bash(npm run deploy) FAILED
+```
+
+**And you can talk back** — type a command in the channel, it runs on the host:
+
+> **you:** `!git log --oneline -3`
+> **bot:**
+> ```
+> 5b54edd docs(README): reframe positioning
+> 8e98be7 feat(hooks): port tool-trace rework
+> 3b62f9f feat: CF Worker + KV backend
+> ```
+
+All of it is **opt-in per channel** and **off by default**. Pick how much you want to see — silent, just status emoji, narration, or full diffs.
+
+See [Tool-trace modes](#tool-trace-by-example) for the full mode list, and [The two halves](#the-two-halves) for how it's built.
+
+---
+
 ## The two halves
 
 ### 1. Shared context store
