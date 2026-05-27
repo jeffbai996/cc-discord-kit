@@ -139,3 +139,82 @@ def test_git_write_idempotent(git_personas):
         ["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True, check=True,
     ).stdout.strip()
     assert before == after
+
+
+# ─────────────────────────── gap coverage ───────────────────────────
+
+
+def test_resolve_returns_path_and_mode(fresh_personas):
+    personas, plain = fresh_personas
+    path, mode = personas._resolve("testbot", "plain.md")
+    assert path == str(plain)
+    assert mode == "plain"
+
+
+def test_resolve_unknown_bot_and_slot_raise(fresh_personas):
+    personas, _ = fresh_personas
+    with pytest.raises(KeyError):
+        personas._resolve("ghost", "plain.md")
+    with pytest.raises(KeyError):
+        personas._resolve("testbot", "missing-slot.md")
+
+
+def test_get_agent_meta_none_and_unknown_return_empty(fresh_personas):
+    personas, _ = fresh_personas
+    assert personas.get_agent_meta(None) == {}
+    assert personas.get_agent_meta("testbot") == {}  # no agent_meta block in fixture
+
+
+def test_get_agent_meta_reads_block(tmp_path, monkeypatch):
+    plain = tmp_path / "plain.md"
+    agents_file = tmp_path / "agents.yaml"
+    agents_file.write_text(textwrap.dedent(f"""
+        agents:
+          metabot:
+            - {{ slot: plain.md, path: {plain}, mode: plain }}
+        agent_meta:
+          metabot:
+            discord_home_channel: "999000"
+    """).strip() + "\n")
+    monkeypatch.setenv("CCDK_AGENTS_FILE", str(agents_file))
+    personas = _import_personas()
+    personas.reset_cache()
+    meta = personas.get_agent_meta("metabot")
+    assert meta["discord_home_channel"] == "999000"
+
+
+def test_empty_config_when_file_missing(tmp_path, monkeypatch):
+    monkeypatch.setenv("CCDK_AGENTS_FILE", str(tmp_path / "nope.yaml"))
+    personas = _import_personas()
+    personas.reset_cache()
+    assert personas.list_bots() == []
+
+
+def test_git_write_no_repo_configured(fresh_personas, monkeypatch):
+    """mode=git slot but git_repo unset → file written, committed False, error set."""
+    personas, _ = fresh_personas
+    # Patch _resolve to report git mode for the plain slot, and force empty repo.
+    orig_resolve = personas._resolve
+    monkeypatch.setattr(
+        personas, "_resolve",
+        lambda bot, slot: (orig_resolve(bot, slot)[0], "git"),
+    )
+    monkeypatch.setattr(personas, "_git_repo", lambda: "")
+    result = personas.write_slot("testbot", "plain.md", "content")
+    assert result["ok"] is True
+    assert result["committed"] is False
+    assert "no git_repo" in result["error"]
+
+
+def test_git_write_commit_failure_still_writes_file(git_personas, monkeypatch):
+    personas, repo, tracked = git_personas
+
+    def boom(repo_, path, msg):
+        raise subprocess.CalledProcessError(1, "git", stderr="commit failed")
+
+    monkeypatch.setattr(personas, "_git_commit", boom)
+    result = personas.write_slot("gitbot", "tracked.md", "new body\n")
+    # File write succeeds independently of the commit failure.
+    assert tracked.read_text() == "new body\n"
+    assert result["committed"] is False
+    assert "commit failed" in result["error"]
