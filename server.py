@@ -44,6 +44,7 @@ import personas  # noqa: E402
 import digest as digest_mod  # noqa: E402
 import inventory  # noqa: E402
 import vecgrep_client  # noqa: E402
+import files_store  # noqa: E402
 
 app = Flask(__name__, template_folder="templates")
 app.config["JSON_AS_ASCII"] = False  # render CJK / emoji as-is
@@ -976,6 +977,220 @@ def digest_summarize():
 @app.route("/healthz")
 def healthz():
     return "ok", 200
+
+
+# ─────────────────────────── files ───────────────────────────
+
+
+def _file_summary(rec: dict) -> dict:
+    """Metadata-only view of a file record (drops inline content from list
+    responses so a listing isn't bloated by file bodies)."""
+    return {k: v for k, v in rec.items() if k != "content"}
+
+
+@app.route("/api/files", methods=["GET", "POST"])
+def api_files_collection():
+    if request.method == "POST":
+        body = request.get_json(silent=True) or {}
+        name = (body.get("name") or "").strip()
+        if not name:
+            return jsonify({"ok": False, "error": "missing name"}), 400
+        tags = body.get("tags") or []
+        if isinstance(tags, str):
+            tags = [t.strip() for t in tags.split(",") if t.strip()]
+        try:
+            rec = files_store.add_file(
+                name,
+                content=body.get("content"),
+                type=body.get("type", "") or "",
+                # Security: do NOT trust a client-supplied mime — an attacker
+                # could set text/html / image/svg+xml to weaponize inline
+                # rendering. Always derive it server-side from the name's
+                # extension (files_store._mime_for does this when mime=None).
+                mime=None,
+                tags=tags,
+                about=body.get("about") or [],
+                bot=body.get("bot"),
+                actor=body.get("actor", "") or "api",
+                storage=body.get("storage"),
+            )
+        except files_store.FileTooLarge as e:
+            return jsonify({"ok": False, "error": str(e)}), 413
+        except files_store.StoreFull as e:
+            return jsonify({"ok": False, "error": str(e)}), 507
+        _post_card({"kind": "file_added", "entry": _file_summary(rec)})
+        return jsonify({"ok": True, "file": _file_summary(rec)}), 201
+
+    q = (request.args.get("q") or "").strip()
+    entries = files_store.search_files(q) if q else files_store.load_files()
+    return jsonify({
+        "ok": True,
+        "files": [_file_summary(f) for f in entries],
+        "count": len(entries),
+    })
+
+
+@app.route("/api/files/<int:file_id>", methods=["GET", "PUT", "DELETE"])
+def api_file_item(file_id: int):
+    if request.method == "GET":
+        rec = files_store.get_file(file_id)
+        if not rec:
+            return jsonify({"ok": False, "error": "not found"}), 404
+        return jsonify({"ok": True, "file": rec})
+    if request.method == "PUT":
+        body = request.get_json(silent=True) or {}
+        try:
+            ok = files_store.edit_file(
+                file_id,
+                name=body.get("name"),
+                content=body.get("content"),
+                type=body.get("type"),
+                mime=None,  # never accept a client-supplied mime (see POST)
+                tags=body.get("tags"),
+                about=body.get("about"),
+                bot=body.get("bot"),
+            )
+        except files_store.FileTooLarge as e:
+            return jsonify({"ok": False, "error": str(e)}), 413
+        return jsonify({"ok": ok}), (200 if ok else 404)
+    ok = files_store.remove_file(file_id)
+    if ok:
+        _post_card({"kind": "file_deleted", "id": file_id})
+    return jsonify({"ok": ok}), (200 if ok else 404)
+
+
+@app.route("/api/files/<int:file_id>/raw")
+def api_file_raw(file_id: int):
+    """Raw bytes of a file (inline or blob), with its recorded mime type."""
+    import re
+    from flask import Response
+    rec = files_store.get_file(file_id)
+    if not rec:
+        abort(404)
+    data = files_store.read_file_content(file_id)
+    if data is None:
+        abort(404)
+    # Security: this serves user-uploaded bytes on the app origin. Serving
+    # untrusted content inline with an attacker-influenced content-type is
+    # stored XSS (an uploaded .html/.svg executing JS in the app origin).
+    # Defenses:
+    #   - only a small allowlist of provably-INERT types may render inline;
+    #     everything else (notably text/html, image/svg+xml — both can script)
+    #     is forced to octet-stream + attachment
+    #   - inline disposition is opt-in via ?inline=1 (the preview panel asks
+    #     for it); the default stays attachment so a bare link always downloads
+    #   - nosniff so the browser can't second-guess the type back to html
+    #
+    # NB: SVG is deliberately NOT inline-safe — it's an XML document that can
+    # carry <script>/onload. PDF/raster/audio/video are inert renderers.
+    INLINE_SAFE_MIMES = {
+        "text/plain", "application/json", "image/png", "image/jpeg",
+        "image/gif", "image/webp", "application/pdf",
+        "audio/mpeg", "audio/wav", "audio/ogg", "audio/mp4",
+        "video/mp4", "video/webm", "video/quicktime",
+    }
+    mime = rec.get("mime") or "application/octet-stream"
+    want_inline = request.args.get("inline") in ("1", "true", "yes")
+    inline_ok = want_inline and mime in INLINE_SAFE_MIMES
+    if not inline_ok:
+        mime = "application/octet-stream"  # defang to a download
+    safe_name = re.sub(r'[^A-Za-z0-9._-]', "_", rec.get("name") or "file")
+    disposition = "inline" if inline_ok else "attachment"
+    resp = Response(data, mimetype=mime)
+    resp.headers["Content-Disposition"] = f'{disposition}; filename="{safe_name}"'
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    # CSP by path. `sandbox` sandboxes the resource into an opaque origin, which
+    # BLOCKS rendering it as an <img> — so inline-safe inert types get a
+    # no-sandbox CSP (still loads nothing of its own). The defang/attachment
+    # path keeps the full sandboxed CSP, where the XSS risk actually lives.
+    resp.headers["Content-Security-Policy"] = (
+        "default-src 'none'" if inline_ok else "default-src 'none'; sandbox"
+    )
+    return resp
+
+
+@app.route("/files")
+def files_index():
+    q = (request.args.get("q") or "").strip()
+    entries = files_store.search_files(q) if q else files_store.load_files()
+    entries = sorted(entries, key=lambda f: f.get("id", 0), reverse=True)
+    for f in entries:
+        f["category"] = files_store.file_category(f.get("mime"), f.get("name"))
+    return render_template("files.html", files=entries, q=q,
+                           categories=files_store.FILE_CATEGORIES,
+                           total=len(files_store.load_files()))
+
+
+@app.route("/files/new", methods=["GET", "POST"])
+def file_new():
+    if request.method == "POST":
+        name = (request.form.get("name") or "").strip()
+        upload = request.files.get("upload")
+        content = request.form.get("content")
+        if upload and upload.filename:
+            raw = upload.read()
+            if not name:
+                name = upload.filename
+            if files_store._is_text_ext(name):  # text inline, binary → blob
+                try:
+                    content = raw.decode("utf-8")
+                    blob = None
+                except UnicodeDecodeError:
+                    content, blob = None, raw
+            else:
+                content, blob = None, raw
+        else:
+            blob = None
+        if not name:
+            abort(400)
+        try:
+            rec = files_store.add_file(
+                name, content=content, blob_bytes=blob,
+                tags=_parse_csv(request.form.get("tags", "")),
+                about=_parse_csv(request.form.get("about", "")),
+                bot=_parse_csv(request.form.get("bot", "")) or None,
+                actor="web",
+            )
+        except files_store.FileTooLarge:
+            abort(413)
+        except files_store.StoreFull:
+            abort(507)
+        _post_card({"kind": "file_added", "entry": _file_summary(rec)})
+        return redirect(url_for("file_detail", file_id=rec["id"]))
+    return render_template("file_new.html")
+
+
+@app.route("/files/<int:file_id>", methods=["GET", "POST"])
+def file_detail(file_id: int):
+    rec = files_store.get_file(file_id)
+    if not rec:
+        abort(404)
+    if request.method == "POST":
+        action = request.form.get("action", "edit")
+        if action == "delete":
+            files_store.remove_file(file_id)
+            _post_card({"kind": "file_deleted", "id": file_id})
+            return redirect(url_for("files_index"))
+        try:
+            files_store.edit_file(
+                file_id,
+                name=request.form.get("name"),
+                content=request.form.get("content"),
+                tags=_parse_csv(request.form.get("tags", "")),
+                about=_parse_csv(request.form.get("about", "")),
+            )
+        except files_store.FileTooLarge:
+            abort(413)
+        return redirect(url_for("file_detail", file_id=file_id))
+    rec["category"] = files_store.file_category(rec.get("mime"), rec.get("name"))
+    return render_template("file_detail.html", f=rec)
+
+
+@app.route("/files/<int:file_id>/delete", methods=["POST"])
+def file_delete_form(file_id: int):
+    files_store.remove_file(file_id)
+    _post_card({"kind": "file_deleted", "id": file_id})
+    return redirect(url_for("files_index"))
 
 
 # ─────────────────────────── helpers ───────────────────────────
