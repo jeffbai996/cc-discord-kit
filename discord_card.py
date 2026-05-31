@@ -20,85 +20,156 @@ visible confirmation is the worst case, never a corrupted write.
 
 from __future__ import annotations
 
+import difflib
 import json
 import os
-import textwrap
+import re
 import urllib.error
 import urllib.request
 
 CARD_BODY_LIMIT = 600
 
-# Discord on a phone shows ~30-36 monospace chars before code blocks
-# horizontal-scroll. 32 is the conservative target — nothing wider wraps,
-# the rule line stays inside the visible viewport, and desktop still
-# looks fine since fenced blocks aren't full-width-padded.
-MOBILE_WIDTH = 32
+# Width of the horizontal rule between meta and body. Cards no longer
+# hard-wrap their content to a mobile width (that trimmed long values and
+# chopped diffs); they emit full-length lines and let Discord wrap. The rule
+# is the one fixed-width element — kept short so it doesn't itself force a
+# horizontal scroll on a phone.
+RULE_WIDTH = 32
+
+
+def _sanitize_fence(text: str) -> str:
+    """Replace triple-backticks in body text so they don't close the outer
+    fenced code block. A bare ``` inside a fenced block ends the block early,
+    leaving everything after it rendered as plain text. Swap to a visually
+    similar U+2032 prime so the body still reads as code-ish but doesn't
+    break the fence."""
+    return text.replace("```", "′′′")
 
 
 def _truncate_body(text: str, lim: int = CARD_BODY_LIMIT) -> str:
+    text = _sanitize_fence(text)
     if len(text) <= lim:
         return text
     return text[: lim - 1].rstrip() + "…"
 
 
-def _wrap_value(value: str, indent: int, width: int = MOBILE_WIDTH) -> list[str]:
-    """Word-wrap `value` so the first line fits in `width - indent` chars and
-    continuation lines are prefixed with `indent` spaces (hanging indent).
+_HUNK_RE = re.compile(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 
-    Single tokens longer than the available width are placed on their own line
-    without breaking — overflowing one row beats truncating mid-identifier.
+
+def _diff_body(before_text: str, after_text: str,
+               lim: int = CARD_BODY_LIMIT) -> str | None:
+    """Produce a compact +/- diff focused on what changed, with line numbers.
+
+    Strategy: unified_diff with 1 line of context (so it "zooms" on the
+    changed window), then render each line as `<marker> <lineno> <content>`.
+    The marker (+/-/space) stays at column 0 so Discord's ```diff colorizer
+    fires (green additions, red removals), with one cell of whitespace after
+    it so the marker reads cleanly separated from the gutter even at
+    double-digit line numbers. The line number is the source line — `after`
+    line for additions/context, `before` line for removals — so the reader
+    can see WHICH lines changed.
+
+    Returns None if nothing materially changed (only tags/about edited, body
+    identical) so the caller can fall back to a plain body preview.
     """
-    avail = max(1, width - indent)
-    pieces = textwrap.wrap(
-        value,
-        width=avail,
-        break_long_words=False,
-        break_on_hyphens=False,
-    ) or [value]
-    out = [pieces[0]]
-    for cont in pieces[1:]:
-        out.append(" " * indent + cont)
-    return out
+    before_text = _sanitize_fence(before_text or "")
+    after_text = _sanitize_fence(after_text or "")
+    if before_text == after_text:
+        return None
+    diff_lines = list(difflib.unified_diff(
+        before_text.splitlines(),
+        after_text.splitlines(),
+        n=1,
+        lineterm="",
+    ))
 
-
-def _wrap_body(body: str, width: int = MOBILE_WIDTH) -> str:
-    """Wrap each user-authored line independently so paragraph breaks survive."""
     out: list[str] = []
-    for line in body.splitlines() or [""]:
-        if not line.strip():
-            out.append("")
+    old_ln = new_ln = 0
+    # Gutter width: enough digits for the larger file (min 2 for tidy alignment).
+    width = max(2, len(str(max(
+        before_text.count("\n") + 1, after_text.count("\n") + 1))))
+    for ln in diff_lines:
+        if ln.startswith("---") or ln.startswith("+++"):
+            continue  # file headers — noise
+        m = _HUNK_RE.match(ln)
+        if m:
+            # Parse the hunk header for line numbers but DON'T render it — the
+            # `@@ -a,b +c,d @@` machinery isn't human-parseable. A jump in the
+            # gutter line numbers between sections signals the gap on its own.
+            old_ln, new_ln = int(m.group(1)), int(m.group(2))
             continue
-        wrapped = textwrap.wrap(
-            line,
-            width=width,
-            break_long_words=False,
-            break_on_hyphens=False,
-        ) or [line]
-        out.extend(wrapped)
-    return "\n".join(out)
+        if ln.startswith("+"):
+            out.append(f"+ {str(new_ln).rjust(width)} {ln[1:]}")
+            new_ln += 1
+        elif ln.startswith("-"):
+            out.append(f"- {str(old_ln).rjust(width)} {ln[1:]}")
+            old_ln += 1
+        else:  # context line (leading space)
+            content = ln[1:] if ln.startswith(" ") else ln
+            out.append(f"  {str(new_ln).rjust(width)} {content}")
+            old_ln += 1
+            new_ln += 1
+
+    if not out:
+        return None
+    rendered = "\n".join(out)
+    if len(rendered) <= lim:
+        return rendered
+    return rendered[: lim - 1].rstrip() + "…"
+
+
+def _meta_pad(meta: list[tuple[str, str]]) -> int:
+    """Column width to align meta values: longest key + `: `."""
+    return max((len(k) for k, _ in meta), default=0) + 2
 
 
 def _render_card_block(meta: list[tuple[str, str]], body: str | None) -> str:
     """Render meta-pairs + optional body inside a fenced code block.
 
-    Lines are wrapped to MOBILE_WIDTH so phone Discord doesn't horizontal-scroll.
-    Meta values get a hanging indent so wrapped lines align under the value
-    column rather than the key column.
+    Lines are emitted at their natural length — no hard mobile-width wrap.
+    Discord wraps long lines on its own; trimming them to 32 chars chopped
+    long names and identifiers, which read worse than a soft wrap. The one
+    fixed-width element is the rule between meta and body (RULE_WIDTH).
     """
     if not meta and not body:
         return ""
-    pad = max((len(k) for k, _ in meta), default=0) + 2  # +2 for `: ` after key
+    pad = _meta_pad(meta)
     lines: list[str] = []
     for key, val in meta:
-        head = (key + ":").ljust(pad)
-        wrapped = _wrap_value(val, indent=pad)
-        lines.append(head + wrapped[0])
-        lines.extend(wrapped[1:])
+        lines.append((key + ":").ljust(pad) + val)
     if body:
         if lines:
-            lines.append("─" * MOBILE_WIDTH)
-        lines.append(_wrap_body(body))
+            lines.append("─" * RULE_WIDTH)
+        lines.append(body)
     return "```\n" + "\n".join(lines) + "\n```"
+
+
+def _render_diff_block(meta: list[tuple[str, str]], diff_body: str | None,
+                       fallback_body: str | None) -> str:
+    """Single-block edit-card rendering.
+
+    Everything — meta key:value lines, a rule, and the diff — lives in ONE
+    ```diff fenced block. Discord colorizes only lines that begin with +/-
+    (the diff lines); the meta lines start with letters (`type:` / `tags:` /
+    `about:`), so they render as plain default text. The line numbers in the
+    diff gutter come after the marker, so they don't trigger coloring either.
+
+    Why one block, not two: stacking a plain ``` block above a ```diff block
+    is broken on Discord — when the closing fence sits directly above the next
+    opening fence Discord drops the second block entirely (the diff renders as
+    nothing), and even with a blank line between them it leaves an ugly gap.
+    A single fence sidesteps both: no dropped diff, no gap.
+
+    Falls back to a plain block (no diff highlight) when nothing materially
+    changed in the prose — e.g. tag-only edits where _diff_body returned None.
+    """
+    if diff_body:
+        lines = [(k + ":").ljust(_meta_pad(meta)) + v for k, v in meta]
+        if lines:
+            lines.append("─" * RULE_WIDTH)
+        lines.append(diff_body)
+        return "```diff\n" + "\n".join(lines) + "\n```"
+    return _render_card_block(meta, fallback_body)
 
 
 def format_card(action: dict) -> str | None:
@@ -143,11 +214,12 @@ def format_card(action: dict) -> str | None:
             ("tags", ", ".join(after.get("tags") or before.get("tags") or []) or "—"),
             ("about", ", ".join(after.get("about") or before.get("about") or []) or "—"),
         ]
-        body = _truncate_body(after.get("text", "")) or None
+        diff = _diff_body(before.get("text", ""), after.get("text", ""))
+        fallback = _truncate_body(after.get("text", "")) or None
         head = f"✏️ **Memory #{mid} edited**"
         if title:
             head += f" — {title}"
-        return head + "\n" + _render_card_block(meta, body)
+        return head + "\n" + _render_diff_block(meta, diff, fallback)
     if kind == "memory_deleted":
         before = action.get("before") or {}
         if not before:
@@ -181,8 +253,9 @@ def format_card(action: dict) -> str | None:
             ("tags", ", ".join(after.get("tags") or before.get("tags") or []) or "—"),
             ("actor", after.get("actor", before.get("actor", "")) or "—"),
         ]
-        body = _truncate_body(after.get("text") or before.get("text", "")) or None
-        return f"✏️ **Journal #{jid} edited**\n" + _render_card_block(meta, body)
+        diff = _diff_body(before.get("text", ""), after.get("text", ""))
+        fallback = _truncate_body(after.get("text") or before.get("text", "")) or None
+        return f"✏️ **Journal #{jid} edited**\n" + _render_diff_block(meta, diff, fallback)
     if kind == "journal_deleted":
         before = action.get("before") or {}
         if not before:
