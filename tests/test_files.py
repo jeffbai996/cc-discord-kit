@@ -138,3 +138,37 @@ def test_api_context_get_put(fresh_files):
     assert r.status_code == 200 and r.get_json()["ok"] is True
     assert store.read_shared_doc() == "shared body"
     assert c.get("/api/context").get_json()["text"] == "shared body"
+
+
+# ─────────────── folders (derived path model + client-side group-by) ───────────────
+
+def test_folder_helpers(fresh_files):
+    fs, _ = fresh_files
+    assert fs.folder_of("projects/foo/notes.md") == "projects/foo"
+    assert fs.folder_of("notes.md") == ""
+    assert fs.basename_of("projects/foo/notes.md") == "notes.md"
+    rec = fs.add_file("Projects/My Notes/Draft.md", content="x")
+    assert rec["slug"] == "projects/my-notes/draft.md"  # slug preserves path
+
+
+def test_blob_path_safe_with_pathy_name(fresh_files):
+    fs, _ = fresh_files
+    rec = fs.add_file("a/b/c/pic.png", blob_bytes=b"\x89PNG", actor="test")
+    assert "/a/b/c/" not in (rec.get("blob_path") or "")
+    assert rec["blob_path"].endswith(f"{rec['id']}.png")
+
+
+def test_files_index_emits_group_selector_and_data(fresh_files):
+    fs, c = fresh_files
+    _add(fs, "projects/foo/a.md", content="1")
+    body = c.get("/files").get_data(as_text=True)
+    assert 'id="group-select"' in body
+    assert 'data-folder="projects/foo"' in body
+    assert "data-cat=" in body and "data-date=" in body
+
+
+def test_detail_breadcrumb_for_foldered_file(fresh_files):
+    fs, c = fresh_files
+    rec = _add(fs, "projects/foo/notes.md", content="# hi")
+    body = c.get(f"/files/{rec['id']}").get_data(as_text=True)
+    assert "📁 foo" in body and "notes.md" in body

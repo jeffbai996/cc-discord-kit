@@ -3,9 +3,20 @@
 {% block content %}
 
 <div class="detail">
+  {% if f.folder %}
+  <div class="muted" style="font-size: 0.8rem; margin-bottom: 0.2rem;">
+    <a href="{{ url_for('files_index') }}">files</a>
+    {% set parts = f.folder.split('/') %}
+    {% set ns = namespace(acc='') %}
+    {% for p in parts %}
+      {% set ns.acc = (ns.acc ~ '/' ~ p) if ns.acc else p %}
+      / 📁 {{ p }}
+    {% endfor %}
+  </div>
+  {% endif %}
   <h2>
     <span class="pill cat-{{ f.category }}">{{ f.category }}</span>
-    <span style="margin-left: 0.4rem;">{{ f.name }}</span>
+    <span style="margin-left: 0.4rem;">{{ f.basename or f.name }}</span>
   </h2>
   <div class="meta">
     {% set kb = (f.size or 0) / 1024 %}

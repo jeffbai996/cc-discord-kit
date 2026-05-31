@@ -12,26 +12,55 @@
      title="add a file">+ add file</a>
 </form>
 
-<p class="muted" style="font-size: 0.85rem; margin-bottom: 0.6rem;">
-  <strong style="color: var(--fg);">{{ files|length }}</strong>
-  shared file{{ '' if files|length == 1 else 's' }}
-  {% if q %}matching “{{ q }}”{% endif %}
-</p>
+<div class="files-bar">
+  <p class="muted files-count">
+    <strong style="color: var(--fg);">{{ files|length }}</strong>
+    shared file{{ '' if files|length == 1 else 's' }}
+    {% if q %}matching “{{ q }}”{% endif %}
+  </p>
+  {% if files %}
+  <div class="files-controls">
+    {# Legend: hidden until the ⓘ is hovered/focused (popover). #}
+    <span class="legend-info" tabindex="0" role="button" aria-label="file type colour key">ⓘ
+      <span class="legend-popover" role="tooltip">
+        {% for key, label, emoji, color in categories %}
+        <span class="legend-item"><span class="pill cat-{{ key }}">{{ key }}</span>{{ label }}</span>
+        {% endfor %}
+      </span>
+    </span>
+    {# Group-by selector — folder/type/date/none. Client-side grouping into
+       collapsible sections; persisted per-browser. #}
+    <label class="group-by">group
+      <select id="group-select" aria-label="group by">
+        <option value="folder">by folder</option>
+        <option value="type">by type</option>
+        <option value="date">by date</option>
+        <option value="none">none</option>
+      </select>
+    </label>
+    {# View toggle: grid (cards) vs list (compact rows). #}
+    <span class="view-toggle" role="group" aria-label="view mode">
+      <button type="button" class="view-btn" data-view="grid" title="grid view" aria-label="grid view">▦</button>
+      <button type="button" class="view-btn" data-view="list" title="list view" aria-label="list view">≣</button>
+    </span>
+  </div>
+  {% endif %}
+</div>
 
 {% if files %}
-<div class="file-legend" title="file type colour key">
-  {% for key, label, emoji, color in categories %}
-  <span class="legend-item"><span class="pill cat-{{ key }}">{{ key }}</span>{{ label }}</span>
-  {% endfor %}
-</div>
-<div class="file-grid">
+{# Flat card pool — JS reads these, clones them into collapsible group sections
+   per the group-by selector. data-* carry the grouping keys. #}
+<div id="file-pool" hidden>
   {% for f in files %}
-  <a class="file-card" href="{{ url_for('file_detail', file_id=f.id) }}">
+  <a class="file-card" href="{{ url_for('file_detail', file_id=f.id) }}"
+     data-folder="{{ f.folder or '' }}" data-cat="{{ f.category }}"
+     data-date="{{ (f.ts or '')[:10] }}">
     <div class="file-card-head">
       <span class="pill cat-{{ f.category }}">{{ f.category }}</span>
       {% if f.bot %}<span class="bot-badge" title="bot-scoped: {{ f.bot|join(', ') }}">{{ f.bot|join(',') }}</span>{% endif %}
     </div>
-    <div class="file-card-name">{{ f.name }}</div>
+    {% if f.folder %}<div class="file-card-folder muted">📁 {{ f.folder }}</div>{% endif %}
+    <div class="file-card-name">{{ f.basename or f.name }}</div>
     <div class="file-card-meta muted">
       {% set kb = (f.size or 0) / 1024 %}
       {% if (f.size or 0) < 1024 %}{{ f.size or 0 }} B{% elif kb < 1024 %}{{ '%.1f' % kb }} KB{% else %}{{ '%.1f' % (kb/1024) }} MB{% endif %}
@@ -45,6 +74,8 @@
   </a>
   {% endfor %}
 </div>
+{# Grouped sections render here. #}
+<div id="file-groups"></div>
 {% else %}
 <div class="empty">
   <h3>no files yet</h3>
@@ -57,7 +88,7 @@
 
 <style>
 .file-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-             gap: 0.8rem; margin-top: 0.4rem; }
+             gap: 0.8rem; }
 .file-card { display: block; background: var(--bg-2); border: 1px solid var(--border-2);
              border-radius: var(--radius); padding: 0.85rem 0.9rem; text-decoration: none;
              color: var(--fg); transition: border-color 120ms ease, transform 120ms ease; }
@@ -68,14 +99,69 @@
 .file-card-meta { font-size: 0.78rem; }
 .file-card-tags { margin-top: 0.5rem; display: flex; flex-wrap: wrap; gap: 0.25rem; }
 .file-card-tags .pill { font-size: 0.7rem; }
+.file-card-folder { font-size: 0.72rem; margin-bottom: 0.15rem;
+                    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-/* Page-level type legend (one block, not per-pill ⓘ) */
-.file-legend { display: flex; flex-wrap: wrap; gap: 0.4rem 0.9rem; align-items: center;
-               margin: 0.2rem 0 0.9rem; padding: 0.55rem 0.7rem; background: var(--bg-2);
-               border: 1px solid var(--border-2); border-radius: var(--radius);
-               font-size: 0.78rem; color: var(--muted); }
-.file-legend .legend-item { display: inline-flex; align-items: center; gap: 0.35rem; }
-/* (category pill colors live in _base.html so the detail page shares them) */
+/* top bar */
+.files-bar { display: flex; align-items: center; justify-content: space-between;
+             gap: 0.8rem; margin-bottom: 0.6rem; flex-wrap: wrap; }
+.files-count { font-size: 0.85rem; margin: 0; }
+.files-controls { display: flex; align-items: center; gap: 0.7rem; }
+
+/* Legend ⓘ popover */
+.legend-info { position: relative; cursor: help; color: var(--muted);
+               font-size: 0.95rem; line-height: 1; user-select: none; }
+.legend-info:hover, .legend-info:focus { color: var(--fg); outline: none; }
+.legend-popover { position: absolute; top: calc(100% + 0.4rem); right: 0; z-index: 30;
+                  display: none; flex-direction: column; gap: 0.35rem; width: max-content;
+                  background: var(--bg-2); border: 1px solid var(--border-2);
+                  border-radius: var(--radius); padding: 0.6rem 0.75rem;
+                  box-shadow: 0 8px 24px rgba(0,0,0,0.4); font-size: 0.78rem; color: var(--muted); }
+.legend-info:hover .legend-popover, .legend-info:focus .legend-popover,
+.legend-info:focus-within .legend-popover { display: flex; }
+.legend-popover .legend-item { display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap; }
+
+/* group-by selector */
+.group-by { font-size: 0.78rem; color: var(--muted); display: inline-flex;
+            align-items: center; gap: 0.35rem; }
+.group-by select { background: var(--bg-3); color: var(--fg); border: 1px solid var(--border);
+                   border-radius: 6px; padding: 0.15rem 0.4rem; font-size: 0.78rem;
+                   font-family: inherit; }
+
+/* View toggle */
+.view-toggle { display: inline-flex; gap: 0.15rem; background: var(--bg-3);
+               padding: 0.15rem; border-radius: 6px; border: 1px solid var(--border); }
+.view-btn { background: transparent; border: none; color: var(--muted); cursor: pointer;
+            padding: 0.1rem 0.5rem; border-radius: 4px; font-size: 0.95rem; line-height: 1.2;
+            font-family: inherit; }
+.view-btn.is-active { background: rgba(56,139,253,0.18); color: #79c0ff; }
+.view-btn:not(.is-active):hover { color: var(--fg); }
+
+/* Collapsible group sections */
+.file-group { margin-bottom: 0.5rem; }
+.file-group > summary { cursor: pointer; list-style: none; display: flex; align-items: center;
+                        gap: 0.4rem; padding: 0.4rem 0.2rem; font-size: 0.85rem;
+                        color: var(--fg); font-weight: 600; border-bottom: 1px solid var(--border);
+                        user-select: none; }
+.file-group > summary::-webkit-details-marker { display: none; }
+.file-group > summary::before { content: "▸"; color: var(--muted); font-size: 0.7rem;
+                                transition: transform 120ms ease; display: inline-block; }
+.file-group[open] > summary::before { transform: rotate(90deg); }
+.file-group > summary .grp-count { color: var(--muted); font-weight: 400; font-size: 0.78rem; }
+.file-group .file-grid { margin: 0.6rem 0 0.4rem; }
+
+/* List view — compact rows */
+.file-grid.is-list { display: flex; flex-direction: column; gap: 0; grid-template-columns: none; }
+.file-grid.is-list .file-card { display: flex; align-items: center; gap: 0.6rem;
+                                padding: 0.5rem 0.7rem; border-radius: 0; border-width: 0 0 1px 0; transform: none; }
+.file-grid.is-list .file-card:first-child { border-radius: var(--radius) var(--radius) 0 0; border-top-width: 1px; }
+.file-grid.is-list .file-card:last-child { border-radius: 0 0 var(--radius) var(--radius); }
+.file-grid.is-list .file-card:hover { transform: none; border-color: var(--border-2); background: var(--bg-3); }
+.file-grid.is-list .file-card-head { margin: 0; flex: 0 0 auto; }
+.file-grid.is-list .file-card-name { margin: 0; flex: 1 1 auto; font-size: 0.9rem;
+                                white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.file-grid.is-list .file-card-meta { flex: 0 0 auto; white-space: nowrap; }
+.file-grid.is-list .file-card-tags, .file-grid.is-list .file-card-folder { display: none; }
 </style>
 
 <script>
@@ -89,6 +175,94 @@
       if (qInput.value) { qInput.value = ""; document.getElementById("files-filters-form").submit(); }
       else { qInput.blur(); }
     }
+  });
+
+  const pool = document.getElementById("file-pool");
+  const groupsEl = document.getElementById("file-groups");
+  const groupSel = document.getElementById("group-select");
+  if (!pool || !groupsEl) return;
+
+  const cards = Array.from(pool.querySelectorAll(".file-card"));
+  let view = "grid";
+  try { view = localStorage.getItem("squad_files_view") || "grid"; } catch (e) {}
+  let groupBy = "folder";
+  try { groupBy = localStorage.getItem("squad_files_groupby") || "folder"; } catch (e) {}
+
+  // Key + label for a card under the current grouping.
+  function keyOf(card) {
+    if (groupBy === "folder") return card.dataset.folder || "";
+    if (groupBy === "type")   return card.dataset.cat || "other";
+    if (groupBy === "date")   return card.dataset.date || "";
+    return "";  // none → single group
+  }
+  function labelOf(key) {
+    if (groupBy === "none") return null;            // no header
+    if (groupBy === "folder") return key ? "📁 " + key : "· root";
+    if (groupBy === "type")   return key;
+    if (groupBy === "date")   return key || "—";
+    return key;
+  }
+
+  function render() {
+    groupsEl.textContent = "";
+    // Bucket cards by key, preserving first-seen order.
+    const order = [];
+    const buckets = new Map();
+    cards.forEach(function (c) {
+      const k = keyOf(c);
+      if (!buckets.has(k)) { buckets.set(k, []); order.push(k); }
+      buckets.get(k).push(c);
+    });
+    // Folder groups read best alphabetically (root last); others keep order.
+    if (groupBy === "folder") {
+      order.sort(function (a, b) { return (a === "" ? "￿" : a).localeCompare(b === "" ? "￿" : b); });
+    } else if (groupBy === "date") {
+      order.sort().reverse();  // newest date first
+    }
+    order.forEach(function (k) {
+      const label = labelOf(k);
+      const grid = document.createElement("div");
+      grid.className = "file-grid" + (view === "list" ? " is-list" : "");
+      buckets.get(k).forEach(function (c) { grid.appendChild(c.cloneNode(true)); });
+      if (label === null) {
+        groupsEl.appendChild(grid);  // group-by none → just the grid
+      } else {
+        const det = document.createElement("details");
+        det.className = "file-group";
+        det.open = true;
+        const sum = document.createElement("summary");
+        sum.appendChild(document.createTextNode(label + " "));
+        const cnt = document.createElement("span");
+        cnt.className = "grp-count";
+        cnt.textContent = "(" + buckets.get(k).length + ")";
+        sum.appendChild(cnt);
+        det.appendChild(sum);
+        det.appendChild(grid);
+        groupsEl.appendChild(det);
+      }
+    });
+  }
+
+  render();
+
+  if (groupSel) {
+    groupSel.value = groupBy;
+    groupSel.addEventListener("change", function () {
+      groupBy = groupSel.value;
+      try { localStorage.setItem("squad_files_groupby", groupBy); } catch (e) {}
+      render();
+    });
+  }
+  document.querySelectorAll(".view-btn").forEach(function (b) {
+    b.classList.toggle("is-active", b.dataset.view === view);
+    b.addEventListener("click", function () {
+      view = b.dataset.view;
+      document.querySelectorAll(".view-btn").forEach(function (x) {
+        x.classList.toggle("is-active", x.dataset.view === view);
+      });
+      try { localStorage.setItem("squad_files_view", view); } catch (e) {}
+      render();
+    });
   });
 })();
 </script>

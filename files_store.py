@@ -82,10 +82,41 @@ _files = JsonStore(FILES_FILE, FILES_CAP)
 
 # ─────────────────────────── helpers ───────────────────────────
 
-def _slugify(name: str) -> str:
-    s = re.sub(r"[^a-zA-Z0-9._-]+", "-", (name or "").strip().lower())
+def _slugify_segment(seg: str) -> str:
+    s = re.sub(r"[^a-zA-Z0-9._-]+", "-", (seg or "").strip().lower())
     s = re.sub(r"-{2,}", "-", s).strip("-.")
-    return s or "file"
+    return s
+
+
+def _slugify(name: str) -> str:
+    """Slugify a name, PRESERVING `/` path separators (each segment slugged
+    independently). So `Projects/My Notes/Draft.md` → `projects/my-notes/draft.md`
+    rather than collapsing the folders into dashes — keeps the slug path-like."""
+    segs = [_slugify_segment(s) for s in (name or "").split("/")]
+    segs = [s for s in segs if s]  # drop empty segments (leading/double slash)
+    return "/".join(segs) or "file"
+
+
+def folder_of(name: str) -> str:
+    """The folder portion of a (possibly pathy) file name — the prefix before
+    the last `/`. Root files (no `/`) → "" (the root bucket). Folders are
+    derived from the path in the name (S3 key-prefix model) — no folder objects."""
+    name = (name or "").strip().strip("/")
+    if "/" not in name:
+        return ""
+    return name.rsplit("/", 1)[0]
+
+
+def basename_of(name: str) -> str:
+    """The leaf file name, with any folder prefix stripped."""
+    return (name or "").strip().strip("/").rsplit("/", 1)[-1]
+
+
+def list_folders() -> list[str]:
+    """All distinct folders across live files, including "" for the root bucket.
+    Sorted; root first. Derived from file names — there are no folder objects."""
+    seen = {folder_of(f.get("name") or "") for f in _files.load()}
+    return [""] + sorted(s for s in seen if s)
 
 
 def _ext_of(name: str) -> str:

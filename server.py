@@ -1114,8 +1114,12 @@ def files_index():
     q = (request.args.get("q") or "").strip()
     entries = files_store.search_files(q) if q else files_store.load_files()
     entries = sorted(entries, key=lambda f: f.get("id", 0), reverse=True)
+    # Grouping (by folder/type/date) is done CLIENT-SIDE from the per-card
+    # data-* attributes, so the server just emits the flat pool with the keys.
     for f in entries:
         f["category"] = files_store.file_category(f.get("mime"), f.get("name"))
+        f["folder"] = files_store.folder_of(f.get("name") or "")
+        f["basename"] = files_store.basename_of(f.get("name") or "")
     return render_template("files.html", files=entries, q=q,
                            categories=files_store.FILE_CATEGORIES,
                            total=len(files_store.load_files()))
@@ -1183,6 +1187,8 @@ def file_detail(file_id: int):
             abort(413)
         return redirect(url_for("file_detail", file_id=file_id))
     rec["category"] = files_store.file_category(rec.get("mime"), rec.get("name"))
+    rec["folder"] = files_store.folder_of(rec.get("name") or "")
+    rec["basename"] = files_store.basename_of(rec.get("name") or "")
     return render_template("file_detail.html", f=rec)
 
 
