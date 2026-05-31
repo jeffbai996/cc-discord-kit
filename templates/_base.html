@@ -591,6 +591,8 @@ tr:hover .row-delete-btn { opacity: 0.6; }
     <a class="brand" href="{{ url_for('index') }}">multiagent-tools</a>
     <a href="{{ url_for('index') }}">memories</a>
     <a href="{{ url_for('journal_index') }}">journal</a>
+    <a href="{{ url_for('files_index') }}">files</a>
+    <a href="{{ url_for('context_doc') }}">context</a>
     <a href="{{ url_for('personas_index') }}">personas</a>
     <a href="{{ url_for('digest_review') }}">digest</a>
     <a href="{{ url_for('inventory_index') }}">inventory</a>
@@ -654,6 +656,8 @@ tr:hover .row-delete-btn { opacity: 0.6; }
   const COMMANDS = [
     { label: "memories",       hint: "list browse search durable facts",     action: "{{ url_for('index') }}" },
     { label: "journal",        hint: "pinned moments timeline log",          action: "{{ url_for('journal_index') }}" },
+    { label: "files",          hint: "shared documents references datasets browser preview", action: "{{ url_for('files_index') }}" },
+    { label: "context",        hint: "shared.md rules doc per-agent claude.md brain files", action: "{{ url_for('context_doc') }}" },
     { label: "personas",       hint: "bot identity claude.md persona files", action: "{{ url_for('personas_index') }}" },
     { label: "digest",         hint: "channel recap summary review",         action: "{{ url_for('digest_review') }}" },
     { label: "inventory",      hint: "infra hooks crons services systemd launchd", action: "{{ url_for('inventory_index') }}" },

@@ -118,3 +118,23 @@ def test_preview_code_uses_vendored_highlight(fresh_files):
     assert "hljs-block" in body
     assert "vendor/highlight.min.js" in body  # vendored, not CDN
     assert "cdnjs" not in body
+
+
+# ─────────────── context (SHARED.md rules doc) ───────────────
+
+def test_context_doc_renders_and_saves(fresh_files):
+    """The /context page renders, and POSTing saves SHARED.md."""
+    fs, c = fresh_files
+    import store
+    assert c.get("/context").status_code == 200
+    assert c.post("/context", data={"text": "# Rules\nbe kind"}).status_code == 200
+    assert store.read_shared_doc().strip() == "# Rules\nbe kind"
+
+
+def test_api_context_get_put(fresh_files):
+    fs, c = fresh_files
+    import store
+    r = c.put("/api/context", json={"text": "shared body"})
+    assert r.status_code == 200 and r.get_json()["ok"] is True
+    assert store.read_shared_doc() == "shared body"
+    assert c.get("/api/context").get_json()["text"] == "shared body"

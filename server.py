@@ -1193,6 +1193,87 @@ def file_delete_form(file_id: int):
     return redirect(url_for("files_index"))
 
 
+# ───────────── context (SHARED.md rules doc + per-agent brain files) ─────────────
+
+
+def _bot_file_cards() -> list[dict]:
+    """Per-agent brain-file cards shown on /context below SHARED.md. Each agent
+    has one or more slots — its CLAUDE.md / persona.md, configured in
+    agents.yaml. Reuses personas.py (the same module /personas uses)."""
+    cards = []
+    for bot in personas.list_bots():
+        slots = []
+        for slot in personas.get_files(bot):
+            data = personas.read_slot(bot, slot["slot"])
+            preview = (data["text"] or "")[:200].strip()
+            slots.append({
+                **slot,
+                "mtime": data["mtime"],
+                "preview": preview,
+                "missing": not data["text"] and data["mtime"] is None,
+            })
+        cards.append({"name": bot, "slots": slots})
+    return cards
+
+
+@app.route("/context", methods=["GET", "POST"])
+def context_doc():
+    """View / edit SHARED.md — the global rulebook injected into every agent at
+    session start (see store.format_shared_doc_for_prompt) — plus the per-agent
+    brain-file editor cards folded in below it."""
+    saved = error = None
+    if request.method == "POST":
+        try:
+            store.write_shared_doc(request.form.get("text", ""))
+            saved = True
+        except OSError as e:
+            error = str(e)
+    return render_template(
+        "context.html",
+        text=store.read_shared_doc(),
+        path=store.SHARED_DOC_FILE,
+        saved=saved,
+        error=error,
+        bot_cards=_bot_file_cards(),
+    )
+
+
+@app.route("/context/file/<bot>/<slot>", methods=["GET", "POST"])
+def context_file(bot: str, slot: str):
+    """Edit one agent's brain file (CLAUDE.md / persona.md). Folded under
+    /context; mirrors the standalone /personas/<bot>/<slot> page."""
+    try:
+        personas._resolve(bot, slot)
+    except KeyError:
+        abort(404)
+    saved = error = None
+    if request.method == "POST":
+        result = personas.write_slot(bot, slot, request.form.get("text", ""))
+        if result.get("error"):
+            error = result["error"]
+        else:
+            saved = {"committed": result.get("committed"), "sha": result.get("sha")}
+    data = personas.read_slot(bot, slot)
+    return render_template(
+        "context_file.html",
+        bot=bot, slot=slot, data=data, saved=saved, error=error,
+    )
+
+
+@app.route("/api/context", methods=["GET", "PUT"])
+def api_context():
+    if request.method == "PUT":
+        body = request.get_json(silent=True) or {}
+        if "text" not in body:
+            return jsonify({"ok": False, "error": "missing 'text'"}), 400
+        try:
+            store.write_shared_doc(body["text"])
+        except OSError as e:
+            return jsonify({"ok": False, "error": str(e)}), 500
+        return jsonify({"ok": True})
+    return jsonify({"text": store.read_shared_doc(), "path": store.SHARED_DOC_FILE})
+
+
 # ─────────────────────────── helpers ───────────────────────────
 
 
