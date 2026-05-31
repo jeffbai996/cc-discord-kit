@@ -198,6 +198,7 @@ Set `CCDK_URL=https://your-host:8443/` to run the same commands against a remote
 | `/` | memories index — search, optional semantic search, filter by type/about/bot, pin/trash |
 | `/journal` | journal entries timeline with literal or optional semantic search; title + colored category pills |
 | `/files` | shared file browser — colored type pills + hover legend, grid/list views, inline preview (images, syntax-highlighted code, markdown, JSON, CSV tables, PDF, audio/video), and an edit/preview toggle for text files |
+| `/context` | edit `SHARED.md` (the global rules doc injected at session start) + per-agent brain-file (CLAUDE.md) cards |
 | `/personas` | per-agent persona file editor |
 | `/digest` | recent Discord channel review (if configured) |
 | `/inventory` | live hooks/crons/services across configured hosts |
