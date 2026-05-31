@@ -549,6 +549,13 @@ tr.is-pinned:hover td { background: rgba(240, 198, 116, 0.08); }
 }
 tr:hover .row-delete-btn { opacity: 0.6; }
 .row-delete-btn:hover { color: #ff7b72; background: rgba(207, 34, 46, 0.12); opacity: 1; }
+/* Touch devices (iPad, phones) have no hover, so the hover-gated reveal above
+   never fires — the ✕ stayed invisible/untappable at viewports >480px (the old
+   mobile rule only caught phones). Show it always on any no-hover device. */
+@media (hover: none) {
+  .row-delete-btn { opacity: 0.55; }
+  .row-delete-btn:active { opacity: 1; color: #ff7b72; }
+}
 .expand-row { background: var(--bg-3); }
 .expand-body {
   padding: 0.7rem 1.2rem 0.95rem !important;
