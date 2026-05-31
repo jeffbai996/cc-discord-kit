@@ -13,9 +13,20 @@ Usage:
   cc-discord-kit journal list [--days N]
   cc-discord-kit journal show <id>
   cc-discord-kit journal add <text> [--source SRC] [--actor A] [--tags a,b,c]
-  cc-discord-kit journal edit <id> [<text>] [--actor A] [--source SRC] [--tags a,b,c]
+                                    [--title T] [--category C]
+  cc-discord-kit journal edit <id> [<text>] [--actor A] [--source SRC]
+                                    [--tags a,b,c] [--title T] [--category C]
   cc-discord-kit journal delete <id>
   cc-discord-kit journal search <term>
+
+  cc-discord-kit files list
+  cc-discord-kit files show <id> [--body-only]
+  cc-discord-kit files add [name] [--from-file PATH] [--tags a,b] [--about a,b]
+                                  [--bot a,b] [--actor A]
+  cc-discord-kit files edit <id> [--name N] [--tags a,b] [--about a,b]
+                                  [--from-file PATH]
+  cc-discord-kit files delete <id>
+  cc-discord-kit files search <term>
 
   cc-discord-kit persona list
   cc-discord-kit persona show <bot> <slot>
@@ -59,6 +70,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import store  # noqa: E402
 import history  # noqa: E402
 import personas  # noqa: E402
+import files_store  # noqa: E402
 
 
 # ─────────────────────────── display helpers ───────────────────────────
@@ -168,6 +180,25 @@ def _parse_csv(value: str | None) -> list[str]:
     return [v.strip() for v in value.split(",") if v.strip()]
 
 
+def _store_supports(func, *names: str) -> bool:
+    """True iff `func` accepts every keyword in `names`.
+
+    The optional journal --title/--category flags are wired through to
+    store.add_journal / store.edit_journal only when that store build
+    actually declares those parameters. Older store modules that predate
+    the fields keep working unchanged — we simply drop the extra kwargs
+    instead of raising TypeError on an unknown keyword.
+    """
+    try:
+        import inspect
+        params = inspect.signature(func).parameters
+    except (TypeError, ValueError):
+        return False
+    if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()):
+        return True
+    return all(n in params for n in names)
+
+
 def _detect_calling_bot() -> str | None:
     """Best-effort agent name. Override with CCDK_BOT in env.
 
@@ -202,24 +233,35 @@ def _resolve_discord_origin_from_transcript() -> tuple[str, str] | None:
     """
     if os.environ.get("CLAUDECODE") != "1":
         return None
-    projects_root = os.path.expanduser("~/.claude/projects")
-    if not os.path.isdir(projects_root):
-        return None
+    # Scan all project dirs. Each agent may use its own config dir, so
+    # transcripts live under $CLAUDE_CONFIG_DIR/projects when that's set,
+    # falling back to ~/.claude/projects otherwise. Most-recently-modified
+    # .jsonl across those roots = the active session.
+    roots: list[str] = []
+    cfg = os.environ.get("CLAUDE_CONFIG_DIR", "")
+    if cfg:
+        roots.append(os.path.join(cfg, "projects"))
+    default_root = os.path.expanduser("~/.claude/projects")
+    if default_root not in roots:
+        roots.append(default_root)
     candidates: list[tuple[str, float]] = []
-    try:
-        for proj in os.listdir(projects_root):
-            sub = os.path.join(projects_root, proj)
-            if not os.path.isdir(sub):
-                continue
-            for name in os.listdir(sub):
-                if name.endswith(".jsonl"):
-                    p = os.path.join(sub, name)
-                    try:
-                        candidates.append((p, os.path.getmtime(p)))
-                    except OSError:
-                        continue
-    except OSError:
-        return None
+    for projects_root in roots:
+        if not os.path.isdir(projects_root):
+            continue
+        try:
+            for proj in os.listdir(projects_root):
+                sub = os.path.join(projects_root, proj)
+                if not os.path.isdir(sub):
+                    continue
+                for name in os.listdir(sub):
+                    if name.endswith(".jsonl"):
+                        p = os.path.join(sub, name)
+                        try:
+                            candidates.append((p, os.path.getmtime(p)))
+                        except OSError:
+                            continue
+        except OSError:
+            continue
     if not candidates:
         return None
     # Don't trust transcripts that haven't been touched in a long while —
@@ -443,8 +485,14 @@ def cmd_journal(args: argparse.Namespace) -> int:
         return 0
     if sub == "add":
         tags = _parse_csv(args.tags)
-        e = store.add_journal(args.text, source=args.source or "cli",
-                              actor=args.actor or "", tags=tags)
+        kwargs = dict(source=args.source or "cli",
+                      actor=args.actor or "", tags=tags)
+        # Optional heading / category — only forwarded if the store build
+        # declares them (keeps older stores working unchanged).
+        if _store_supports(store.add_journal, "title", "category"):
+            kwargs["title"] = getattr(args, "title", "") or ""
+            kwargs["category"] = getattr(args, "category", None)
+        e = store.add_journal(args.text, **kwargs)
         print(f"Pinned #{e['id']}")
         _post_card_if_discord({"kind": "journal_added", "entry": e}, args)
         return 0
@@ -462,9 +510,15 @@ def cmd_journal(args: argparse.Namespace) -> int:
             kwargs["source"] = args.source
         if args.tags is not None:
             kwargs["tags"] = _parse_csv(args.tags)
+        if getattr(args, "title", None) is not None \
+                and _store_supports(store.edit_journal, "title"):
+            kwargs["title"] = args.title
+        if getattr(args, "category", None) is not None \
+                and _store_supports(store.edit_journal, "category"):
+            kwargs["category"] = args.category
         if not kwargs:
-            print("nothing to edit (pass text or --actor/--source/--tags)",
-                  file=sys.stderr)
+            print("nothing to edit (pass text or --actor/--source/--tags/"
+                  "--title/--category)", file=sys.stderr)
             return 2
         ok = store.edit_journal(args.id, **kwargs)
         if not ok:
@@ -557,21 +611,117 @@ def cmd_persona(args: argparse.Namespace) -> int:
     return 2
 
 
-def _add_discord_flags(parser: argparse.ArgumentParser) -> None:
-    """Add --discord-chat-id / --discord-message-id to a subcommand parser.
+def _fmt_size(n: int) -> str:
+    n = float(int(n or 0))
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024 or unit == "GB":
+            return f"{n:.0f}{unit}" if unit == "B" else f"{n:.1f}{unit}"
+        n /= 1024
+    return f"{n:.0f}B"
 
-    When --discord-chat-id is set, after a successful op the CLI posts a
-    rendered card to that channel (replying to --discord-message-id when
-    provided). Without these flags the CLI is silent on Discord and just
-    prints `Saved #N` to stdout — backwards-compatible with terminal use.
 
-    Bots passing these from a Discord-originated request resolve them from
-    the inbound `<channel>` tag's `chat_id` and `message_id` attributes.
-    """
-    parser.add_argument("--discord-chat-id", default="",
-                        help="post a confirmation card to this Discord channel after the op")
-    parser.add_argument("--discord-message-id", default="",
-                        help="reply-to message ID for the card (requires --discord-chat-id)")
+def cmd_files(args: argparse.Namespace) -> int:
+    sub = args.sub
+    if sub == "list":
+        entries = files_store.load_files()
+        if not entries:
+            print("(no files)")
+            return 0
+        for f in entries:
+            tags = ",".join(f.get("tags") or [])
+            print(f"#{f['id']:<4} {f.get('type','?'):<6} {_fmt_size(f.get('size',0)):>8}  "
+                  f"{f.get('name','')}{('  ['+tags+']') if tags else ''}")
+        return 0
+    if sub == "show":
+        f = files_store.get_file(args.id)
+        if not f:
+            print(f"File #{args.id} not found", file=sys.stderr)
+            return 1
+        if getattr(args, "body_only", False):
+            data = files_store.read_file_content(args.id) or b""
+            sys.stdout.buffer.write(data)
+            return 0
+        print(f"#{f['id']} {f.get('name','')}")
+        print(f"  type={f.get('type')}  mime={f.get('mime')}  "
+              f"size={_fmt_size(f.get('size',0))}  storage={f.get('storage')}")
+        if f.get("tags"):
+            print(f"  tags: {', '.join(f['tags'])}")
+        if f.get("about"):
+            print(f"  about: {', '.join(f['about'])}")
+        print(f"  sha256: {f.get('sha256','')[:16]}…")
+        if f.get("storage") == "inline":
+            print("  ---")
+            print(f.get("content", ""))
+        return 0
+    if sub == "add":
+        # Read content from --from-file (path), stdin, or empty.
+        content = None
+        blob_bytes = None
+        name = args.name
+        if getattr(args, "from_file", None):
+            path = os.path.expanduser(args.from_file)
+            if not name:
+                name = os.path.basename(path)
+            if files_store._is_text_ext(path):
+                with open(path, "r", encoding="utf-8", errors="replace") as fh:
+                    content = fh.read()
+            else:
+                with open(path, "rb") as fh:
+                    blob_bytes = fh.read()
+        elif not sys.stdin.isatty():
+            content = sys.stdin.read()
+        try:
+            rec = files_store.add_file(
+                name or "untitled", content=content, blob_bytes=blob_bytes,
+                tags=_parse_csv(args.tags), about=_parse_csv(args.about),
+                bot=_parse_csv(args.bot) if args.bot else None,
+                actor=args.actor or "cli",
+            )
+        except (files_store.FileTooLarge, files_store.StoreFull) as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 1
+        print(f"Added #{rec['id']}: {rec['name']} ({_fmt_size(rec['size'])}, {rec['storage']})")
+        _post_card_if_discord({"kind": "file_added", "entry": rec}, args)
+        return 0
+    if sub == "edit":
+        kwargs = {}
+        if args.name is not None:
+            kwargs["name"] = args.name
+        if args.tags is not None:
+            kwargs["tags"] = _parse_csv(args.tags)
+        if args.about is not None:
+            kwargs["about"] = _parse_csv(args.about)
+        if getattr(args, "from_file", None):
+            with open(os.path.expanduser(args.from_file), "r",
+                      encoding="utf-8", errors="replace") as fh:
+                kwargs["content"] = fh.read()
+        if not kwargs:
+            print("nothing to edit (pass --name/--tags/--about/--from-file)",
+                  file=sys.stderr)
+            return 2
+        try:
+            ok = files_store.edit_file(args.id, **kwargs)
+        except files_store.FileTooLarge as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 1
+        if not ok:
+            print(f"File #{args.id} not found", file=sys.stderr)
+            return 1
+        print(f"Edited #{args.id}")
+        return 0
+    if sub == "delete":
+        ok = files_store.remove_file(args.id)
+        if not ok:
+            print(f"File #{args.id} not found", file=sys.stderr)
+            return 1
+        print(f"Deleted #{args.id}")
+        return 0
+    if sub == "search":
+        for f in files_store.search_files(args.term):
+            print(f"#{f['id']:<4} {f.get('name','')}  ({_fmt_size(f.get('size',0))})")
+        return 0
+    print(f"unknown files subcommand: {sub}", file=sys.stderr)
+    return 2
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -641,6 +791,9 @@ def build_parser() -> argparse.ArgumentParser:
     j_add.add_argument("--source", default="cli")
     j_add.add_argument("--actor", default="")
     j_add.add_argument("--tags", default="")
+    j_add.add_argument("--title", default="", help="optional short heading")
+    j_add.add_argument("--category", default=None,
+                       help="optional category pill")
     _add_discord_flags(j_add)
 
     j_edit = jsub.add_parser("edit")
@@ -653,6 +806,10 @@ def build_parser() -> argparse.ArgumentParser:
                         help="overwrite the entry's source field")
     j_edit.add_argument("--tags", default=None,
                         help="comma-separated tags (overwrites)")
+    j_edit.add_argument("--title", default=None,
+                        help="overwrite the entry's title")
+    j_edit.add_argument("--category", default=None,
+                        help="overwrite the entry's category")
     _add_discord_flags(j_edit)
 
     j_del = jsub.add_parser("delete")
@@ -661,6 +818,43 @@ def build_parser() -> argparse.ArgumentParser:
 
     j_search = jsub.add_parser("search")
     j_search.add_argument("term")
+
+    # files — shared "project files" any agent can read
+    fil = top.add_parser("files", help="manage shared files (documents)")
+    fsub = fil.add_subparsers(dest="sub", required=True)
+
+    fsub.add_parser("list")
+
+    f_show = fsub.add_parser("show")
+    f_show.add_argument("id", type=int)
+    f_show.add_argument("--body-only", action="store_true",
+                        help="print raw file content only (bytes to stdout)")
+
+    f_add = fsub.add_parser("add")
+    f_add.add_argument("name", nargs="?", default="",
+                       help="file name (inferred from --from-file if omitted)")
+    f_add.add_argument("--from-file", default=None,
+                       help="read content from this local path")
+    f_add.add_argument("--tags", default="")
+    f_add.add_argument("--about", default="")
+    f_add.add_argument("--bot", default="",
+                       help="comma-separated bot whitelist (scopes visibility)")
+    f_add.add_argument("--actor", default="")
+    _add_discord_flags(f_add)
+
+    f_edit = fsub.add_parser("edit")
+    f_edit.add_argument("id", type=int)
+    f_edit.add_argument("--name", default=None)
+    f_edit.add_argument("--tags", default=None)
+    f_edit.add_argument("--about", default=None)
+    f_edit.add_argument("--from-file", default=None,
+                        help="replace inline content from this local path")
+
+    f_del = fsub.add_parser("delete")
+    f_del.add_argument("id", type=int)
+
+    f_search = fsub.add_parser("search")
+    f_search.add_argument("term")
 
     # persona
     per = top.add_parser("persona", help="manage per-bot persona files")
@@ -684,6 +878,23 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _add_discord_flags(parser: argparse.ArgumentParser) -> None:
+    """Add --discord-chat-id / --discord-message-id to a subcommand parser.
+
+    When --discord-chat-id is set, after a successful op the CLI posts a
+    rendered card to that channel (replying to --discord-message-id when
+    provided). Without these flags the CLI is silent on Discord and just
+    prints `Saved #N` to stdout — backwards-compatible with terminal use.
+
+    Bots passing these from a Discord-originated request resolve them from
+    the inbound `<channel>` tag's `chat_id` and `message_id` attributes.
+    """
+    parser.add_argument("--discord-chat-id", default="",
+                        help="post a confirmation card to this Discord channel after the op")
+    parser.add_argument("--discord-message-id", default="",
+                        help="reply-to message ID for the card (requires --discord-chat-id)")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -691,6 +902,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_memory(args)
     if args.cmd == "journal":
         return cmd_journal(args)
+    if args.cmd == "files":
+        return cmd_files(args)
     if args.cmd == "persona":
         return cmd_persona(args)
     parser.print_help()

@@ -93,6 +93,15 @@ a.pill:hover { color: var(--fg); border-color: var(--border-2);
 .pill.type-user     { background: var(--t-user-bg);     color: var(--t-user-fg);     border-color: var(--t-user-bd); }
 .pill.type-reference{ background: var(--t-reference-bg);color: var(--t-reference-fg);border-color: var(--t-reference-bd); }
 
+/* file-category pills (files browser) — keys mirror files_store.FILE_CATEGORIES.
+   Pale tint bg + saturated text so they read on the dark theme. */
+.pill.cat-image    { background: rgba(22,163,74,0.16);  color: #56d364; border-color: rgba(22,163,74,0.40); }
+.pill.cat-document { background: rgba(220,38,38,0.16);  color: #ff7b72; border-color: rgba(220,38,38,0.40); }
+.pill.cat-code     { background: rgba(56,139,253,0.16); color: #79c0ff; border-color: rgba(56,139,253,0.40); }
+.pill.cat-data     { background: rgba(163,113,247,0.16);color: #c8a3ff; border-color: rgba(163,113,247,0.40); }
+.pill.cat-media    { background: rgba(234,88,12,0.16);  color: #f7b955; border-color: rgba(234,88,12,0.40); }
+.pill.cat-other    { background: rgba(139,148,158,0.16);color: #8b949e; border-color: rgba(139,148,158,0.40); }
+
 /* active filter chips */
 .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center;
          margin-bottom: 0.9rem; }

@@ -9,13 +9,22 @@ Two stores:
   memories.json  — durable facts (cap 200), always loaded into prompt
   journal.json   — pinned moments (cap 1000), recent slice loaded into prompt
 
+A single freeform markdown rules doc (SHARED.md) of always-true rules every
+agent boots with sits alongside them; it's injected full-text by the
+SessionStart hook and edited via the web UI. Distinct from memories: memories
+are atomic facts; SHARED.md is the coherent rulebook.
+
 Data location is parametrized via the CCDK_DATA_DIR env var.
 Default is `~/.local/share/cc-discord-kit/`.
 
 Schema (memory entry):
   id, ts, type, name, text, tags, about?, bot?
     about: list[str]  — subject(s) the memory is about
-    bot:   list[str] | null  — if set, only that agent sees in default views
+    bot:   list[str] | null  — whitelist of agents that see this memory.
+           For default-allow agents: unset = shared with all, set = scope to listed agents.
+           For RESTRICTED_BOTS (default-deny): the agent must be explicitly in this
+           list, otherwise the memory is hidden. Use `cc-discord-kit memory share <id> --with <bot>`.
+    visibility: reserved for v2 — do not claim this name for anything else
 """
 
 from __future__ import annotations
@@ -40,11 +49,23 @@ def _resolve_data_dir() -> str:
 DATA_DIR = _resolve_data_dir()
 MEMORIES_FILE = os.path.join(DATA_DIR, "memories.json")
 JOURNAL_FILE = os.path.join(DATA_DIR, "journal.json")
+# SHARED.md — a single freeform markdown doc of always-true rules every agent
+# boots with. Injected full-text by the SessionStart hook (same channel as
+# feedback memories), edited via the web UI. Distinct from memories: memories
+# are atomic facts; SHARED.md is the coherent rulebook.
+SHARED_DOC_FILE = os.path.join(DATA_DIR, "SHARED.md")
 
 MEMORIES_CAP = 200
 JOURNAL_CAP = 1000
 
 VALID_TYPES = {"user", "feedback", "project", "reference"}
+
+# Agents that operate outside the trusted set. They default-DENY: they only
+# see memories whose `bot` whitelist explicitly includes them. Trusted agents
+# (everything not listed here) default-ALLOW: they see all shared memories plus
+# any whose `bot` whitelist includes them. Empty by default — the machinery is
+# kept for any future untrusted agent: add its name here.
+RESTRICTED_BOTS: set[str] = set()
 
 # Strip leading rendered-header lines that agents sometimes paste back when
 # round-tripping content through `cc-discord-kit memory show`. This keeps
@@ -117,25 +138,58 @@ class JsonStore:
             log.warning("Failed to save %s: %s", self._file_path, e)
             self._invalidate()
 
+    @property
+    def _maxid_path(self) -> str:
+        """Sidecar that persists the all-time-high ID independently of the
+        entries. Survives a tombstone purge ('clear trash'), so IDs never get
+        reused even if every dead record is hard-deleted from the file."""
+        return self._file_path + ".maxid"
+
+    def _read_watermark(self) -> int:
+        try:
+            with open(self._maxid_path) as f:
+                return int(f.read().strip() or 0)
+        except (OSError, ValueError):
+            return 0
+
+    def _bump_watermark(self, value: int) -> None:
+        """Persist a new high-water mark (monotonic — never lowered)."""
+        if value <= self._read_watermark():
+            return
+        try:
+            tmp = self._maxid_path + ".tmp"
+            with open(tmp, "w") as f:
+                f.write(str(value))
+            os.replace(tmp, self._maxid_path)
+        except OSError as e:
+            log.warning("Failed to write watermark %s: %s", self._maxid_path, e)
+
     def next_id(self, entries: list[dict] | None = None) -> int:
-        """Monotonic ID allocation: max over ALL entries including tombstones, +1.
+        """Monotonic ID allocation: 1 + max over (a) all entries incl. tombstones
+        and (b) the persisted watermark sidecar.
 
         Ignores any `entries` arg passed by older callers — always reads raw to
-        guarantee monotonicity. Deleted IDs are never reused.
+        guarantee monotonicity. Deleted IDs are never reused, and the watermark
+        keeps that guarantee even after tombstones are purged from the file.
+        Pre-fix installs have no sidecar (reads as 0) and fall back cleanly to
+        max-over-entries; the sidecar is (re)created on the next add().
         """
         raw = self._load_raw()
-        if not raw:
-            return 1
-        return max(e.get("id", 0) for e in raw) + 1
+        max_entry = max((e.get("id", 0) for e in raw), default=0)
+        return max(max_entry, self._read_watermark()) + 1
 
     def add(self, extra_fields: dict) -> dict:
         raw = self._load_raw()
+        new_id = self.next_id()
         entry = {
-            "id": self.next_id(),
+            "id": new_id,
             "ts": datetime.now(timezone.utc).isoformat(),
             **extra_fields,
         }
         raw.append(entry)
+        # Persist the high-water mark so the ID is never reused even if this
+        # entry (or every tombstone) is later purged from the file.
+        self._bump_watermark(new_id)
         # Cap counts only live entries; tombstones don't count toward the cap.
         live_count = sum(1 for e in raw if not e.get("deleted"))
         if live_count > self.max_entries:
@@ -293,11 +347,54 @@ def filter_memories(entries: list[dict] | None = None, *,
                 continue
         if not show_all:
             entry_bot = m.get("bot")
-            if entry_bot:
+            if bot in RESTRICTED_BOTS:
+                # Restricted bot: default-deny. Must be explicitly whitelisted.
+                if not entry_bot or bot not in entry_bot:
+                    continue
+            elif entry_bot:
+                # Trusted bot: hidden only if a whitelist exists and excludes us.
                 if not bot or bot not in entry_bot:
                     continue
         out.append(m)
     return out
+
+
+def share_memory(memory_id: int, with_bot: str) -> bool:
+    """Add a bot to a memory's `bot` whitelist. Idempotent. No-op if already present."""
+    target = next((m for m in load_memories() if m.get("id") == memory_id), None)
+    if not target:
+        return False
+    current = list(target.get("bot") or [])
+    if with_bot in current:
+        return True
+    current.append(with_bot)
+    return _memories.update(memory_id, {"bot": current})
+
+
+def unshare_memory(memory_id: int, with_bot: str) -> bool:
+    """Remove a bot from a memory's `bot` whitelist. Idempotent.
+
+    If the resulting whitelist is empty, the `bot` field is cleared entirely
+    so the memory returns to shared-with-all visibility for trusted bots (and
+    stays invisible to restricted bots, which is the safe default)."""
+    target = next((m for m in load_memories() if m.get("id") == memory_id), None)
+    if not target:
+        return False
+    current = list(target.get("bot") or [])
+    if with_bot not in current:
+        return True
+    current = [b for b in current if b != with_bot]
+    if current:
+        return _memories.update(memory_id, {"bot": current})
+    # Empty whitelist: pop the field entirely so the entry returns to the
+    # "no bot field" state (shared with all for trusted bots, hidden for restricted).
+    raw = _memories._load_raw()
+    for e in raw:
+        if e.get("id") == memory_id and not e.get("deleted"):
+            e.pop("bot", None)
+            _memories.save(raw)
+            return True
+    return False
 
 
 def format_memories_for_prompt(*, bot: str | None = None,
@@ -382,6 +479,19 @@ def format_memories_index(*, bot: str | None = None,
 
 _journal = JsonStore(JOURNAL_FILE, JOURNAL_CAP)
 
+# Journal categories — rendered as colored pills in the web UI. `general` is
+# the catch-all default for entries that don't fit anything else.
+JOURNAL_CATEGORIES = ["decision", "incident", "milestone", "moment", "note", "general"]
+DEFAULT_JOURNAL_CATEGORY = "general"
+
+
+def _normalize_category(category: str | None) -> str:
+    """Coerce a category to the known vocab; unknown/empty → general."""
+    if not category:
+        return DEFAULT_JOURNAL_CATEGORY
+    c = category.strip().lower()
+    return c if c in JOURNAL_CATEGORIES else DEFAULT_JOURNAL_CATEGORY
+
 
 def load_journal() -> list[dict]:
     return _journal.load()
@@ -393,15 +503,22 @@ def load_journal_raw() -> list[dict]:
 
 
 def add_journal(text: str, *, source: str = "", actor: str = "",
-                tags: list[str] | None = None) -> dict:
+                tags: list[str] | None = None,
+                title: str = "", category: str | None = None) -> dict:
     """Pin a moment. source = 'discord:my-channel' / 'cli' / etc.
     actor = agent or user name.
+
+    title    — optional short heading, rendered like a memory name.
+    category — one of JOURNAL_CATEGORIES; rendered as a colored pill.
+               Unknown/empty → 'general' (the catch-all).
     """
     return _journal.add({
         "source": source,
         "actor": actor,
         "tags": list(tags) if tags else [],
-        "text": text.strip(),
+        "title": title.strip(),
+        "category": _normalize_category(category),
+        "text": _strip_rendered_header(text.strip()),
     })
 
 
@@ -412,16 +529,25 @@ def remove_journal(entry_id: int) -> bool:
 def edit_journal(entry_id: int, text: str | None = None, *,
                  actor: str | None = None,
                  source: str | None = None,
-                 tags: list[str] | None = None) -> bool:
+                 tags: list[str] | None = None,
+                 pinned: bool | None = None,
+                 title: str | None = None,
+                 category: str | None = None) -> bool:
     fields: dict = {}
     if text is not None:
-        fields["text"] = text.strip()
+        fields["text"] = _strip_rendered_header(text.strip())
     if actor is not None:
         fields["actor"] = actor.strip()
     if source is not None:
         fields["source"] = source.strip()
     if tags is not None:
         fields["tags"] = list(tags)
+    if pinned is not None:
+        fields["pinned"] = bool(pinned)
+    if title is not None:
+        fields["title"] = title.strip()
+    if category is not None:
+        fields["category"] = _normalize_category(category)
     if not fields:
         return False
     return _journal.update(entry_id, fields)
@@ -467,3 +593,44 @@ def format_journal_for_prompt(days: int = 7) -> str:
         lines.append(f"- {head}")
         lines.append(f"  {e['text']}")
     return "\n".join(lines)
+
+
+# ── SHARED.md — global rules doc ──────────────────────────────────────────────
+
+def read_shared_doc() -> str:
+    """Return the SHARED.md body, or "" if it doesn't exist / can't be read.
+
+    Never raises — a missing or unreadable rules doc must not break callers
+    (especially the SessionStart hook, where any exception would degrade boot).
+    """
+    try:
+        with open(SHARED_DOC_FILE, encoding="utf-8") as f:
+            return f.read()
+    except (OSError, UnicodeDecodeError):
+        return ""
+
+
+def write_shared_doc(text: str) -> None:
+    """Overwrite SHARED.md with `text`. Creates DATA_DIR if needed."""
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(SHARED_DOC_FILE, "w", encoding="utf-8") as f:
+        f.write(text)
+
+
+def format_shared_doc_for_prompt(*, bot: str | None = None) -> str:
+    """Wrap SHARED.md for SessionStart injection. "" if empty or restricted bot.
+
+    Gated to trusted agents: any restricted bot (in RESTRICTED_BOTS) never
+    receives the shared rulebook, mirroring how feedback memories are withheld
+    from them. bot=None (terminal / generic session) is treated as trusted.
+    """
+    if bot in RESTRICTED_BOTS:
+        return ""
+    body = read_shared_doc()
+    if not body.strip():
+        return ""
+    return (
+        "SHARED RULES (SHARED.md — always-true rules for every agent; "
+        "follow these like your own instructions):\n"
+        f"{body.strip()}"
+    )

@@ -72,7 +72,8 @@ def _load_digest_channels() -> dict[str, str]:
 DIGEST_CHANNELS: dict[str, str] = _load_digest_channels()
 
 DEFAULT_HOURS = 6  # narrow default — wider windows take longer to render; widen via ?hours= when needed
-HARD_MESSAGE_CAP = 200  # per channel — Discord paginates 100 max per request
+HARD_MESSAGE_CAP = 500  # per channel — Discord paginates 100 max per request,
+                         # raised to handle wider multi-day windows
 
 
 class Message(TypedDict):
@@ -202,7 +203,7 @@ def fetch_window(hours: int = DEFAULT_HOURS) -> list[Message]:
 
 
 def _load_gemini_key() -> str | None:
-    """Read GEMINI_API_KEY from env or env file."""
+    """Read GEMINI_API_KEY from env, then the env file."""
     return _read_env_var("GEMINI_API_KEY")
 
 
@@ -250,9 +251,9 @@ def summarize_messages(msgs: list[Message]) -> str:
         # gemini-3-flash-preview is a thinking model — token budget covers
         # both internal reasoning AND visible output. 1024 was too tight;
         # the model burned most of it on thinking and left only ~190 chars
-        # of summary before stopping (observed 2026-05-01). 4096 is enough
-        # headroom for typical 24h windows. thinkingLevel=low keeps cost
-        # bounded — we don't need deep reasoning for a recap, just a summary.
+        # of summary before stopping. 4096 is enough headroom for typical
+        # 24h windows. thinkingLevel=low keeps cost bounded — we don't need
+        # deep reasoning for a recap, just a summary.
         "generationConfig": {
             "maxOutputTokens": 4096,
             "thinkingConfig": {"thinkingLevel": "low"},
