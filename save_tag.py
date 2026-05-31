@@ -1,13 +1,13 @@
 """Pre-send tag handler: called by the Discord plugin before posting an
 assistant message. Reads one JSON op from stdin, executes it against the
-cc-discord-kit, prints one JSON result to stdout.
+the cc-discord-kit store, prints one JSON result to stdout.
 
 Input shape:
   {"op": "memory_save",   "body": "...", "type": "feedback", "name": "",
                           "tags": [], "about": [], "bot": null}
   {"op": "memory_edit",   "id": 57, "body": "..."}
   {"op": "memory_delete", "id": 57}
-  {"op": "journal_save",  "body": "...", "actor": "agent-1", "tags": []}
+  {"op": "journal_save",  "body": "...", "actor": "bot", "tags": []}
   {"op": "journal_delete","id": 12}
 
 Output shape (all ops):

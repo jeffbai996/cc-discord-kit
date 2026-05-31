@@ -1,4 +1,4 @@
-"""Edit/delete history for the cc-discord-kit.
+"""Edit/delete history for the cc-discord-kit store.
 
 Why this exists: web routes mutate memories.json and journal.json with no undo.
 Every edit and delete done through the web UI gets a JSONL line in edits.jsonl
@@ -414,7 +414,7 @@ def edit_journal_with_history(entry_id: int, *, actor: str = "web", **fields) ->
     before = _find_journal(entry_id)
     if before is None:
         return False
-    allowed = {"text", "actor", "source", "tags"}
+    allowed = {"text", "actor", "source", "tags", "title", "category"}
     raw = dict(fields)
     if "entry_actor" in raw:
         raw["actor"] = raw.pop("entry_actor")

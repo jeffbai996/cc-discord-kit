@@ -1,0 +1,361 @@
+{% extends "_base.html" %}
+{% block title %}transcripts · {{ start }} → {{ end }}{% endblock %}
+{% block content %}
+
+<style>
+  .tx-grid { max-width: 1100px; }
+  .tx-stats { display: flex; gap: 1.5rem; flex-wrap: wrap; padding: 0.75rem 1rem;
+              background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+              margin-bottom: 1rem; font-size: 0.9rem; }
+  .tx-stats strong { color: var(--text); }
+  .tx-stats .muted { font-size: 0.85rem; }
+
+  .tx-form { margin-bottom: 1rem; display: flex; gap: 0.6rem; flex-wrap: wrap;
+             align-items: center; }
+  .tx-form input[type=date] { padding: 0.3rem 0.5rem;
+                  background: var(--card); border: 1px solid var(--border);
+                  color: var(--text); border-radius: 4px; font: inherit; }
+  .tx-form .channel-checks { display: flex; gap: 0.6rem; flex-wrap: wrap;
+                              padding: 0.4rem 0.6rem; background: var(--card);
+                              border: 1px solid var(--border); border-radius: 4px; }
+  .tx-form .channel-checks label { font-size: 0.85rem; cursor: pointer;
+                                    display: flex; gap: 0.25rem; align-items: center; }
+
+  .tx-msg-list { max-height: 65vh; overflow-y: auto; padding: 0.5rem;
+                 background: var(--card); border: 1px solid var(--border);
+                 border-radius: 8px; margin-bottom: 1rem; }
+  .tx-msg { padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--border);
+            font-size: 0.9rem; line-height: 1.4; }
+  .tx-msg:last-child { border-bottom: none; }
+  .tx-msg-meta { display: flex; gap: 0.6rem; align-items: baseline;
+                 font-size: 0.78rem; color: var(--muted); margin-bottom: 0.15rem; }
+  .tx-msg-author { color: var(--text); font-weight: 600; }
+  .tx-msg-author.bot { color: #8a9bb3; font-weight: 500; }
+  .tx-msg-channel { background: var(--accent); color: #0d1117;
+                    padding: 0.05rem 0.4rem; border-radius: 3px;
+                    font-size: 0.7rem; text-transform: lowercase; }
+  .tx-msg-content { white-space: pre-wrap; word-break: break-word;
+                    font-family: inherit; }
+  .tx-msg-content:empty::after { content: "(empty)";
+                    color: var(--muted); font-style: italic; font-size: 0.8rem; }
+
+  .tx-empty { padding: 2rem; text-align: center; color: var(--muted);
+              background: var(--card); border: 1px solid var(--border);
+              border-radius: 8px; margin-bottom: 1rem; }
+</style>
+
+<div class="detail tx-grid">
+  <h2>transcripts archive</h2>
+  <p class="muted" style="margin-top:-0.4rem; font-size: 0.88rem;">
+    Rolling 365-day archive of configured channels. Use this for date-range pulls
+    that the digest UI's 7-day window can't cover, and to save raw transcripts
+    (not summaries) into the journal.
+  </p>
+
+  <div class="tx-stats">
+    {% if archive_stats.earliest_day %}
+      <span>archive: <strong>{{ archive_stats.earliest_day }}</strong> → <strong>{{ archive_stats.latest_day }}</strong></span>
+      <span><strong>{{ archive_stats.total_messages }}</strong> messages total</span>
+      {% for name, c in archive_stats.channels.items() %}
+        {% if c.messages %}
+          <span class="muted">{{ name }}: {{ c.messages }}</span>
+        {% endif %}
+      {% endfor %}
+    {% else %}
+      <span class="muted">No messages archived yet — the poller may not have run.</span>
+    {% endif %}
+  </div>
+
+  <form class="tx-form" method="get" action="{{ url_for('transcripts_view') }}">
+    <label>from <input type="date" name="start" value="{{ start }}"></label>
+    <label>to <input type="date" name="end" value="{{ end }}"></label>
+    <span class="channel-checks">
+      {% for name, cid in channels.items() %}
+        <label>
+          <input type="checkbox" name="channel" value="{{ name }}"
+                 {% if not channel_filter or name in channel_filter %}checked{% endif %}>
+          {{ name }}
+        </label>
+      {% endfor %}
+    </span>
+    <button class="btn-primary" type="submit">load</button>
+  </form>
+
+  {% if msgs %}
+  <p class="muted" style="font-size: 0.85rem;">
+    showing <strong id="tx-shown-count" style="color: var(--text);">{{ msgs_initial_count }}</strong>
+    of <strong id="tx-total-count" style="color: var(--text);">{{ msgs_total }}</strong> messages in window
+    {% if msgs_total > msgs_initial_count %}
+      <button type="button" id="tx-load-more" class="btn"
+              style="margin-left: 0.5rem; padding: 0.15rem 0.6rem; font-size: 0.85rem;">
+        load all ({{ msgs_total - msgs_initial_count }} more)
+      </button>
+      <span id="tx-load-status" class="muted" style="margin-left: 0.5rem; font-size: 0.85rem;"></span>
+    {% endif %}
+  </p>
+  <div class="tx-msg-list" id="tx-msg-list"
+       data-start="{{ start }}" data-end="{{ end }}"
+       data-channels="{{ channel_filter|join(',') }}"
+       data-loaded="{{ msgs_initial_count }}" data-total="{{ msgs_total }}">
+    {% for m in msgs %}
+    <div class="tx-msg">
+      <div class="tx-msg-meta">
+        <span class="tx-msg-channel">{{ m.channel }}</span>
+        <span class="tx-msg-author {% if m.is_bot %}bot{% endif %}">{{ m.author }}</span>
+        <span>{{ (m.ts or '')[:19].replace('T', ' ') }}</span>
+      </div>
+      <div class="tx-msg-content">{{ m.content }}</div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <h3 style="margin-top: 2rem;">save selection to journal</h3>
+  <form method="post" action="{{ url_for('transcripts_view') }}">
+    <input type="hidden" name="start" value="{{ start }}">
+    <input type="hidden" name="end" value="{{ end }}">
+    <input type="hidden" name="channels" value="{{ channel_filter|join(',') if channel_filter else 'all' }}">
+
+    <label>actor</label>
+    <input type="text" name="actor" value="" placeholder="user or agent name">
+
+    <label>tags (comma-separated, "transcript" auto-added)</label>
+    <input type="text" name="tags" placeholder="optional — e.g. iran, family">
+
+    <label>
+      transcript text
+      <button type="button" id="tx-fill-raw" class="btn"
+              style="margin-left: 0.5rem; padding: 0.15rem 0.6rem; font-size: 0.85rem;">
+        📋 fill from selection
+      </button>
+      <button type="button" id="tx-summarize" class="btn"
+              style="margin-left: 0.25rem; padding: 0.15rem 0.6rem; font-size: 0.85rem;">
+        ✨ auto-summarize ({{ msgs|length }} msgs)
+      </button>
+      <span id="tx-summarize-status" class="muted" style="margin-left: 0.5rem; font-size: 0.85rem;"></span>
+    </label>
+    <textarea id="tx-text" name="text" required data-charcount="#tx-charcount" autofocus
+      placeholder="Paste or generate raw transcript text here. The 'fill from selection' button dumps every visible message above into this box, ready to save."></textarea>
+    <span id="tx-charcount" class="charcount"></span>
+
+    <div class="toolbar">
+      <button class="btn-primary" type="submit">save to journal</button>
+      <a class="btn btn-ghost" href="{{ url_for('journal_index') }}">cancel</a>
+    </div>
+  </form>
+
+<script>
+// "fill from selection" — dump every visible message into the textarea as
+// plain text. Keeps it simple: channel:author timestamp newline body.
+(function () {
+  const btn = document.getElementById("tx-fill-raw");
+  const ta = document.getElementById("tx-text");
+  if (!btn || !ta) return;
+  btn.addEventListener("click", function () {
+    if (ta.value.trim() && !confirm("Replace existing draft?")) return;
+    const lines = [];
+    document.querySelectorAll(".tx-msg").forEach(function (msg) {
+      const ch = msg.querySelector(".tx-msg-channel")?.textContent?.trim() || "?";
+      const author = msg.querySelector(".tx-msg-author")?.textContent?.trim() || "?";
+      const ts = msg.querySelector(".tx-msg-meta span:last-child")?.textContent?.trim() || "";
+      const body = msg.querySelector(".tx-msg-content")?.textContent || "";
+      lines.push(`[${ts}] #${ch} ${author}:`);
+      body.split("\n").forEach(function (l) { lines.push(`  ${l}`); });
+      lines.push("");
+    });
+    ta.value = lines.join("\n");
+    ta.dispatchEvent(new Event("input"));
+  });
+})();
+</script>
+
+<script>
+// Auto-summarize: POST start/end/channel to /transcripts/summarize and drop
+// the returned text into the textarea. Replaces existing draft (with confirm).
+// Mirrors digest's summarize UX: 30s cooldown, status messages, button lock.
+(function () {
+  const btn = document.getElementById("tx-summarize");
+  const status = document.getElementById("tx-summarize-status");
+  const ta = document.getElementById("tx-text");
+  if (!btn || !ta) return;
+
+  let cooldownTimer = null;
+  function startCooldown(seconds, msg) {
+    btn.disabled = true;
+    let remaining = seconds;
+    const tick = () => {
+      if (remaining <= 0) {
+        clearInterval(cooldownTimer);
+        cooldownTimer = null;
+        btn.disabled = false;
+        status.textContent = "";
+        return;
+      }
+      status.textContent = `${msg} (${remaining}s)`;
+      remaining -= 1;
+    };
+    tick();
+    cooldownTimer = setInterval(tick, 1000);
+  }
+
+  function buildBody() {
+    // Pull live values from the GET filter form so the summary always
+    // matches the visible window (start/end/channel checkboxes).
+    const params = new URLSearchParams();
+    const startEl = document.querySelector('.tx-form input[name="start"]');
+    const endEl = document.querySelector('.tx-form input[name="end"]');
+    if (startEl) params.append("start", startEl.value);
+    if (endEl) params.append("end", endEl.value);
+    document.querySelectorAll('.tx-form input[name="channel"]:checked').forEach(function (cb) {
+      params.append("channel", cb.value);
+    });
+    return params.toString();
+  }
+
+  btn.addEventListener("click", async function () {
+    if (ta.value.trim() && !confirm("Replace existing draft with auto-summary?")) return;
+    btn.disabled = true;
+    status.textContent = "summarizing…";
+    try {
+      const res = await fetch("{{ url_for('transcripts_summarize') }}", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: buildBody(),
+      });
+      const payload = await res.json();
+      if (res.status === 429) {
+        const wait = payload.retry_after_sec || 30;
+        startCooldown(wait, "⏳ cooldown");
+        return;
+      }
+      if (res.status === 413) {
+        // Window too large — show error inline, leave button enabled so the
+        // user can narrow the window and try again without waiting 30s.
+        status.textContent = "❌ " + (payload.error || "window too large");
+        btn.disabled = false;
+        return;
+      }
+      if (!res.ok) {
+        status.textContent = "❌ " + (payload.error || "summarize failed");
+        btn.disabled = false;
+        return;
+      }
+      ta.value = payload.text;
+      ta.dispatchEvent(new Event("input"));
+      startCooldown(30, `✅ summarized ${payload.msg_count} msgs · cooldown`);
+    } catch (e) {
+      status.textContent = "❌ " + (e.message || "request failed");
+      btn.disabled = false;
+    }
+  });
+})();
+</script>
+  
+<script>
+// Lazy-load: keep initial paint small. The list contains the most recent
+// 200 messages by default; older messages are pulled via /api/transcripts
+// when the user clicks "load all" or implicitly before fill-from-selection.
+(function () {
+  const list = document.getElementById("tx-msg-list");
+  if (!list) return;
+  let inFlight = null;
+
+  window.ensureFullTranscriptsLoad = function () {
+    if (inFlight) return inFlight;
+    const loaded = parseInt(list.dataset.loaded || "0", 10);
+    const total = parseInt(list.dataset.total || "0", 10);
+    if (loaded >= total) return Promise.resolve();
+
+    const params = new URLSearchParams();
+    params.set("start", list.dataset.start || "");
+    params.set("end", list.dataset.end || "");
+    (list.dataset.channels || "").split(",").forEach(function (c) {
+      if (c) params.append("channel", c);
+    });
+    params.set("offset", "0");
+    params.set("limit", String(total));
+
+    const status = document.getElementById("tx-load-status");
+    if (status) status.textContent = "loading…";
+
+    inFlight = fetch("/api/transcripts?" + params.toString())
+      .then(function (r) { return r.json(); })
+      .then(function (payload) {
+        const all = payload.msgs || [];
+        list.innerHTML = "";
+        all.forEach(function (m) {
+          const card = document.createElement("div");
+          card.className = "tx-msg";
+          const ts = (m.ts || "").slice(0, 19).replace("T", " ");
+          const isBot = m.is_bot ? " bot" : "";
+          card.innerHTML =
+            '<div class="tx-msg-meta">' +
+              '<span class="tx-msg-channel"></span> ' +
+              '<span class="tx-msg-author' + isBot + '"></span> ' +
+              '<span></span>' +
+            '</div>' +
+            '<div class="tx-msg-content"></div>';
+          card.querySelector(".tx-msg-channel").textContent = m.channel || "?";
+          card.querySelector(".tx-msg-author").textContent = m.author || "?";
+          card.querySelector(".tx-msg-meta span:last-child").textContent = ts;
+          card.querySelector(".tx-msg-content").textContent = m.content || "";
+          list.appendChild(card);
+        });
+        list.dataset.loaded = String(all.length);
+        const shown = document.getElementById("tx-shown-count");
+        if (shown) shown.textContent = String(all.length);
+        const btn = document.getElementById("tx-load-more");
+        if (btn) btn.style.display = "none";
+        if (status) status.textContent = "✅ loaded " + all.length;
+      })
+      .catch(function (e) {
+        if (status) status.textContent = "❌ " + (e.message || "load failed");
+        inFlight = null;
+        throw e;
+      });
+    return inFlight;
+  };
+
+  const btn = document.getElementById("tx-load-more");
+  if (btn) {
+    btn.addEventListener("click", function () {
+      btn.disabled = true;
+      window.ensureFullTranscriptsLoad().catch(function () {
+        btn.disabled = false;
+      });
+    });
+  }
+
+  // Hook fill-from-selection: force-load before dumping. Captures so it
+  // runs before the original handler. After load, re-click to fire it again.
+  const fillBtn = document.getElementById("tx-fill-raw");
+  if (fillBtn) {
+    let bypass = false;
+    fillBtn.addEventListener("click", function (ev) {
+      if (bypass) { bypass = false; return; }
+      const loaded = parseInt(list.dataset.loaded || "0", 10);
+      const total = parseInt(list.dataset.total || "0", 10);
+      if (loaded < total) {
+        ev.stopImmediatePropagation();
+        ev.preventDefault();
+        window.ensureFullTranscriptsLoad().then(function () {
+          bypass = true;
+          fillBtn.click();
+        });
+      }
+    }, true);
+  }
+})();
+</script>
+{% else %}
+  <div class="tx-empty">
+    No messages in <strong>{{ start }}</strong> → <strong>{{ end }}</strong>
+    {% if channel_filter %}for {{ channel_filter|join(', ') }}{% endif %}.
+    <p style="margin-top: 0.6rem; font-size: 0.85rem;">
+      Try widening the date range, unchecking the channel filter, or running
+      <code>python3 -m transcripts --watch</code> to populate the archive.
+    </p>
+  </div>
+  {% endif %}
+</div>
+
+{% endblock %}

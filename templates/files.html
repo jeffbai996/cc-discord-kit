@@ -1,0 +1,96 @@
+{% extends "_base.html" %}
+{% block title %}files ({{ files|length }}/{{ total }}){% endblock %}
+{% block content %}
+
+<form class="filters" id="files-filters-form" method="get">
+  <input type="search" id="q-input" name="q"
+         placeholder="search files… ( / to focus )"
+         value="{{ q }}" autocomplete="off">
+  <a class="btn btn-ghost" href="{{ url_for('files_index') }}"
+     {% if not q %}hidden{% endif %}>clear</a>
+  <a class="btn btn-primary" href="{{ url_for('file_new') }}"
+     title="add a file">+ add file</a>
+</form>
+
+<p class="muted" style="font-size: 0.85rem; margin-bottom: 0.6rem;">
+  <strong style="color: var(--fg);">{{ files|length }}</strong>
+  shared file{{ '' if files|length == 1 else 's' }}
+  {% if q %}matching “{{ q }}”{% endif %}
+</p>
+
+{% if files %}
+<div class="file-legend" title="file type colour key">
+  {% for key, label, emoji, color in categories %}
+  <span class="legend-item"><span class="pill cat-{{ key }}">{{ key }}</span>{{ label }}</span>
+  {% endfor %}
+</div>
+<div class="file-grid">
+  {% for f in files %}
+  <a class="file-card" href="{{ url_for('file_detail', file_id=f.id) }}">
+    <div class="file-card-head">
+      <span class="pill cat-{{ f.category }}">{{ f.category }}</span>
+      {% if f.bot %}<span class="bot-badge" title="bot-scoped: {{ f.bot|join(', ') }}">{{ f.bot|join(',') }}</span>{% endif %}
+    </div>
+    <div class="file-card-name">{{ f.name }}</div>
+    <div class="file-card-meta muted">
+      {% set kb = (f.size or 0) / 1024 %}
+      {% if (f.size or 0) < 1024 %}{{ f.size or 0 }} B{% elif kb < 1024 %}{{ '%.1f' % kb }} KB{% else %}{{ '%.1f' % (kb/1024) }} MB{% endif %}
+      · {{ (f.ts or '')[:10] }}
+    </div>
+    {% if f.tags %}
+    <div class="file-card-tags">
+      {% for t in f.tags %}<span class="pill">{{ t }}</span>{% endfor %}
+    </div>
+    {% endif %}
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty">
+  <h3>no files yet</h3>
+  <p>drop a shared document the whole squad can read.</p>
+  <p style="margin-top: 1rem;">
+    <a class="btn btn-primary" href="{{ url_for('file_new') }}">+ add the first file</a>
+  </p>
+</div>
+{% endif %}
+
+<style>
+.file-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+             gap: 0.8rem; margin-top: 0.4rem; }
+.file-card { display: block; background: var(--bg-2); border: 1px solid var(--border-2);
+             border-radius: var(--radius); padding: 0.85rem 0.9rem; text-decoration: none;
+             color: var(--fg); transition: border-color 120ms ease, transform 120ms ease; }
+.file-card:hover { border-color: var(--accent); transform: translateY(-1px); }
+.file-card-head { display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.5rem; }
+.file-card-name { font-weight: 600; font-size: 0.95rem; word-break: break-word;
+                  line-height: 1.3; margin-bottom: 0.35rem; }
+.file-card-meta { font-size: 0.78rem; }
+.file-card-tags { margin-top: 0.5rem; display: flex; flex-wrap: wrap; gap: 0.25rem; }
+.file-card-tags .pill { font-size: 0.7rem; }
+
+/* Page-level type legend (one block, not per-pill ⓘ) */
+.file-legend { display: flex; flex-wrap: wrap; gap: 0.4rem 0.9rem; align-items: center;
+               margin: 0.2rem 0 0.9rem; padding: 0.55rem 0.7rem; background: var(--bg-2);
+               border: 1px solid var(--border-2); border-radius: var(--radius);
+               font-size: 0.78rem; color: var(--muted); }
+.file-legend .legend-item { display: inline-flex; align-items: center; gap: 0.35rem; }
+/* (category pill colors live in _base.html so the detail page shares them) */
+</style>
+
+<script>
+(function () {
+  const qInput = document.getElementById("q-input");
+  document.addEventListener("keydown", (ev) => {
+    const tag = (ev.target && ev.target.tagName) || "";
+    const editing = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+    if (ev.key === "/" && !editing) { ev.preventDefault(); if (qInput) qInput.focus(); }
+    if (ev.key === "Escape" && qInput && document.activeElement === qInput) {
+      if (qInput.value) { qInput.value = ""; document.getElementById("files-filters-form").submit(); }
+      else { qInput.blur(); }
+    }
+  });
+})();
+</script>
+
+{% endblock %}
