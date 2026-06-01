@@ -58,8 +58,19 @@
     {% elif f.category == 'media' and f.mime.startswith('video/') %}
       <div class="preview-media"><video controls src="{{ raw_inline }}" style="max-width:100%"></video></div>
     {% elif f.category == 'document' %}
-      <embed class="preview-pdf" src="{{ raw_inline }}" type="application/pdf">
-      <p class="muted" style="margin-top:0.5rem;">PDF not rendering? <a href="{{ raw_dl }}" target="_blank">download ↗</a> (DRM-locked PDFs can't preview inline).</p>
+      {# PDF.js viewer — renders to canvas, works where native <embed> shows
+         blank (iPad Safari). Zoom controls + scrollable pages. #}
+      <div class="pdf-toolbar">
+        <button type="button" id="pdf-zoom-out" title="zoom out">−</button>
+        <span id="pdf-zoom-label">100%</span>
+        <button type="button" id="pdf-zoom-in" title="zoom in">+</button>
+        <span class="pdf-pagecount" id="pdf-pagecount"></span>
+        <a href="{{ raw_dl }}" target="_blank" class="pdf-dl">download ↗</a>
+      </div>
+      <div id="pdf-viewer" class="pdf-viewer" data-pdf-src="{{ raw_inline }}"></div>
+      <p class="muted pdf-fallback" id="pdf-fallback" hidden style="margin-top:0.5rem;">
+        Couldn't render this PDF (it may be encrypted/DRM-locked). <a href="{{ raw_dl }}" target="_blank">download ↗</a>
+      </p>
     {% elif f.storage == 'inline' and f.type in ('md', 'markdown') %}
       <div class="body-render markdown-body">{{ f.content | render_md }}</div>
     {% elif f.storage == 'inline' and f.category == 'data' and f.type == 'csv' %}
@@ -114,8 +125,19 @@
                  border-radius: var(--radius); padding: 0.6rem; text-align: center; }
 .preview-media img, .preview-media video { max-width: 100%; height: auto;
                  border-radius: 4px; display: inline-block; }
-.preview-pdf { width: 100%; height: 75vh; border: 1px solid var(--border);
-               border-radius: var(--radius); background: var(--bg-2); }
+/* PDF.js viewer */
+.pdf-toolbar { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;
+               font-size: 0.85rem; color: var(--muted); flex-wrap: wrap; }
+.pdf-toolbar button { background: var(--bg-3); color: var(--fg); border: 1px solid var(--border-2);
+                      border-radius: 6px; width: 1.9rem; height: 1.7rem; cursor: pointer;
+                      font-size: 1rem; line-height: 1; padding: 0; }
+.pdf-toolbar button:hover { border-color: var(--accent); }
+.pdf-toolbar .pdf-dl { margin-left: auto; color: var(--accent); }
+.pdf-viewer { width: 100%; max-height: 80vh; overflow: auto; border: 1px solid var(--border);
+              border-radius: var(--radius); background: var(--bg-2); padding: 0.5rem;
+              text-align: center; }
+.pdf-viewer canvas { display: block; margin: 0 auto 0.6rem; max-width: 100%;
+                     box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
 .preview pre.body-render { overflow-x: auto; padding: 0; }
 .preview pre.body-render code { display: block; padding: 1rem 1.1rem;
                font-family: "JetBrains Mono", ui-monospace, monospace;
@@ -200,5 +222,61 @@
     });
   }
 })();
+</script>
+
+{# PDF.js — render the doc to canvases (works on iPad Safari where <embed> is blank).
+   ES module: imports the vendored pdf.min.mjs + points it at the vendored worker. #}
+<script type="module">
+const viewer = document.getElementById("pdf-viewer");
+if (viewer) {
+  const src = viewer.dataset.pdfSrc;
+  const fallback = document.getElementById("pdf-fallback");
+  const zoomLabel = document.getElementById("pdf-zoom-label");
+  const pageCountEl = document.getElementById("pdf-pagecount");
+  let scale = 1.2;
+  let pdfDoc = null;
+
+  function showFallback() {
+    viewer.hidden = true;
+    const tb = document.querySelector(".pdf-toolbar");
+    if (tb) tb.style.display = "none";
+    if (fallback) fallback.hidden = false;
+  }
+
+  async function renderAll() {
+    if (!pdfDoc) return;
+    viewer.textContent = "";
+    const dpr = window.devicePixelRatio || 1;
+    for (let n = 1; n <= pdfDoc.numPages; n++) {
+      const page = await pdfDoc.getPage(n);
+      const vp = page.getViewport({ scale: scale * dpr });
+      const canvas = document.createElement("canvas");
+      canvas.width = vp.width;
+      canvas.height = vp.height;
+      canvas.style.width = (vp.width / dpr) + "px";
+      const ctx = canvas.getContext("2d");
+      viewer.appendChild(canvas);
+      await page.render({ canvasContext: ctx, viewport: vp }).promise;
+    }
+    if (zoomLabel) zoomLabel.textContent = Math.round(scale / 1.2 * 100) + "%";
+  }
+
+  (async () => {
+    try {
+      const pdfjsLib = await import("{{ url_for('static', filename='vendor/pdf.min.mjs') }}");
+      pdfjsLib.GlobalWorkerOptions.workerSrc = "{{ url_for('static', filename='vendor/pdf.worker.min.mjs') }}";
+      pdfDoc = await pdfjsLib.getDocument(src).promise;
+      if (pageCountEl) pageCountEl.textContent = pdfDoc.numPages + (pdfDoc.numPages === 1 ? " page" : " pages");
+      await renderAll();
+      const zin = document.getElementById("pdf-zoom-in");
+      const zout = document.getElementById("pdf-zoom-out");
+      if (zin) zin.addEventListener("click", () => { scale = Math.min(scale + 0.3, 4); renderAll(); });
+      if (zout) zout.addEventListener("click", () => { scale = Math.max(scale - 0.3, 0.4); renderAll(); });
+    } catch (e) {
+      console.error("PDF render failed:", e);
+      showFallback();
+    }
+  })();
+}
 </script>
 {% endblock %}
