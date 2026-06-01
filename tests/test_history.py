@@ -47,6 +47,10 @@ def test_record_delete_then_restore(fresh_store):
     assert restored["text"] == "kill me"
     assert restored["name"] == "trash"
     assert "restored_from_id" not in restored
+    # And the delete-entry must be GONE from trash — restoring should remove it,
+    # not leave it lingering (the record is live again).
+    assert history.load_recent_deletes() == []
+    assert any(m["id"] == mem_id for m in store.load_memories())
 
 
 def test_restore_deleted_collision_assigns_new_id(fresh_store):

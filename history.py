@@ -358,6 +358,9 @@ def restore_deleted(history_entry: dict) -> dict | None:
     if len(entries) > store_obj.max_entries:
         entries = entries[-store_obj.max_entries:]
     store_obj.save(entries)
+    # The record is back in the store — drop its delete-history line so the
+    # restored item leaves the trash view (otherwise it lingers there).
+    purge_history_entry(history_entry)
     return new_record
 
 
