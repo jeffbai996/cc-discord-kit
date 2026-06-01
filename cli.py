@@ -13,9 +13,9 @@ Usage:
   cc-discord-kit journal list [--days N]
   cc-discord-kit journal show <id>
   cc-discord-kit journal add <text> [--source SRC] [--actor A] [--tags a,b,c]
-                                    [--title T] [--category C]
+                                    [--title T]
   cc-discord-kit journal edit <id> [<text>] [--actor A] [--source SRC]
-                                    [--tags a,b,c] [--title T] [--category C]
+                                    [--tags a,b,c] [--title T]
   cc-discord-kit journal delete <id>
   cc-discord-kit journal search <term>
 
@@ -183,7 +183,7 @@ def _parse_csv(value: str | None) -> list[str]:
 def _store_supports(func, *names: str) -> bool:
     """True iff `func` accepts every keyword in `names`.
 
-    The optional journal --title/--category flags are wired through to
+    The optional journal --title flag is wired through to
     store.add_journal / store.edit_journal only when that store build
     actually declares those parameters. Older store modules that predate
     the fields keep working unchanged — we simply drop the extra kwargs
@@ -487,11 +487,9 @@ def cmd_journal(args: argparse.Namespace) -> int:
         tags = _parse_csv(args.tags)
         kwargs = dict(source=args.source or "cli",
                       actor=args.actor or "", tags=tags)
-        # Optional heading / category — only forwarded if the store build
-        # declares them (keeps older stores working unchanged).
-        if _store_supports(store.add_journal, "title", "category"):
+        # Optional heading — only forwarded if the store build declares it.
+        if _store_supports(store.add_journal, "title"):
             kwargs["title"] = getattr(args, "title", "") or ""
-            kwargs["category"] = getattr(args, "category", None)
         e = store.add_journal(args.text, **kwargs)
         print(f"Pinned #{e['id']}")
         _post_card_if_discord({"kind": "journal_added", "entry": e}, args)
@@ -513,12 +511,9 @@ def cmd_journal(args: argparse.Namespace) -> int:
         if getattr(args, "title", None) is not None \
                 and _store_supports(store.edit_journal, "title"):
             kwargs["title"] = args.title
-        if getattr(args, "category", None) is not None \
-                and _store_supports(store.edit_journal, "category"):
-            kwargs["category"] = args.category
         if not kwargs:
             print("nothing to edit (pass text or --actor/--source/--tags/"
-                  "--title/--category)", file=sys.stderr)
+                  "--title)", file=sys.stderr)
             return 2
         ok = store.edit_journal(args.id, **kwargs)
         if not ok:
@@ -792,8 +787,6 @@ def build_parser() -> argparse.ArgumentParser:
     j_add.add_argument("--actor", default="")
     j_add.add_argument("--tags", default="")
     j_add.add_argument("--title", default="", help="optional short heading")
-    j_add.add_argument("--category", default=None,
-                       help="optional category pill")
     _add_discord_flags(j_add)
 
     j_edit = jsub.add_parser("edit")
@@ -808,8 +801,6 @@ def build_parser() -> argparse.ArgumentParser:
                         help="comma-separated tags (overwrites)")
     j_edit.add_argument("--title", default=None,
                         help="overwrite the entry's title")
-    j_edit.add_argument("--category", default=None,
-                        help="overwrite the entry's category")
     _add_discord_flags(j_edit)
 
     j_del = jsub.add_parser("delete")

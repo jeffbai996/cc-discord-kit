@@ -479,19 +479,6 @@ def format_memories_index(*, bot: str | None = None,
 
 _journal = JsonStore(JOURNAL_FILE, JOURNAL_CAP)
 
-# Journal categories — rendered as colored pills in the web UI. `general` is
-# the catch-all default for entries that don't fit anything else.
-JOURNAL_CATEGORIES = ["decision", "incident", "milestone", "moment", "note", "general"]
-DEFAULT_JOURNAL_CATEGORY = "general"
-
-
-def _normalize_category(category: str | None) -> str:
-    """Coerce a category to the known vocab; unknown/empty → general."""
-    if not category:
-        return DEFAULT_JOURNAL_CATEGORY
-    c = category.strip().lower()
-    return c if c in JOURNAL_CATEGORIES else DEFAULT_JOURNAL_CATEGORY
-
 
 def load_journal() -> list[dict]:
     return _journal.load()
@@ -504,20 +491,17 @@ def load_journal_raw() -> list[dict]:
 
 def add_journal(text: str, *, source: str = "", actor: str = "",
                 tags: list[str] | None = None,
-                title: str = "", category: str | None = None) -> dict:
+                title: str = "") -> dict:
     """Pin a moment. source = 'discord:my-channel' / 'cli' / etc.
     actor = agent or user name.
 
-    title    — optional short heading, rendered like a memory name.
-    category — one of JOURNAL_CATEGORIES; rendered as a colored pill.
-               Unknown/empty → 'general' (the catch-all).
+    title — optional short heading, rendered like a memory name.
     """
     return _journal.add({
         "source": source,
         "actor": actor,
         "tags": list(tags) if tags else [],
         "title": title.strip(),
-        "category": _normalize_category(category),
         "text": _strip_rendered_header(text.strip()),
     })
 
@@ -531,8 +515,7 @@ def edit_journal(entry_id: int, text: str | None = None, *,
                  source: str | None = None,
                  tags: list[str] | None = None,
                  pinned: bool | None = None,
-                 title: str | None = None,
-                 category: str | None = None) -> bool:
+                 title: str | None = None) -> bool:
     fields: dict = {}
     if text is not None:
         fields["text"] = _strip_rendered_header(text.strip())
@@ -546,8 +529,6 @@ def edit_journal(entry_id: int, text: str | None = None, *,
         fields["pinned"] = bool(pinned)
     if title is not None:
         fields["title"] = title.strip()
-    if category is not None:
-        fields["category"] = _normalize_category(category)
     if not fields:
         return False
     return _journal.update(entry_id, fields)

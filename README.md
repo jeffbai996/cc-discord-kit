@@ -55,7 +55,7 @@ See [Tool-trace modes](#tool-trace-by-example) for the full mode list, and [The 
 ## The two halves
 
 ### 1. Shared context store
-A JSON-backed store with three tiers — **memories** (durable atomic facts, cap 200), a **journal** (pinned moments, cap 1000, with titles + colored categories), and **files** (shared documents/references/datasets/images the agents can read) — plus a freeform `SHARED.md` rules doc and per-agent **persona** files. Every agent uses it through one CLI — directly on a shared filesystem, or over HTTP against the bundled Flask server when the agent's on another machine. Optional semantic search hooks out to an external [vecgrep](#) service (no embedding model ships here). Last-writer-wins + plain JSON is deliberate: you can read and fix the store with a text editor, and a process dying mid-write can't corrupt it.
+A JSON-backed store with three tiers — **memories** (durable atomic facts, cap 200), a **journal** (pinned moments, cap 1000, with optional titles), and **files** (shared documents/references/datasets/images the agents can read) — plus a freeform `SHARED.md` rules doc and per-agent **persona** files. Every agent uses it through one CLI — directly on a shared filesystem, or over HTTP against the bundled Flask server when the agent's on another machine. Optional semantic search hooks out to an external [vecgrep](#) service (no embedding model ships here). Last-writer-wins + plain JSON is deliberate: you can read and fix the store with a text editor, and a process dying mid-write can't corrupt it.
 
 ### 2. Claude Code, surfaced into Discord
 Three independent hooks make a Claude Code turn **legible from a phone** — opt in per agent, per channel:
@@ -79,7 +79,7 @@ The store/server layer originated here; the Claude Code hooks were developed alo
 ## What's in here
 
 **The store** (Discord-agnostic — works on its own)
-- `store.py` — the JSON memory + journal store. Atomic writes, last-writer-wins. Memories carry an optional `bot` whitelist (share/unshare per agent); journal entries carry an optional `title` + `category` (colored pills). A freeform `SHARED.md` rules doc sits alongside, injected at session start.
+- `store.py` — the JSON memory + journal store. Atomic writes, last-writer-wins. Memories carry an optional `bot` whitelist (share/unshare per agent); journal entries carry an optional `title`. A freeform `SHARED.md` rules doc sits alongside, injected at session start.
 - `files_store.py` — a third tier: shared **files** (documents, references, datasets, images, PDFs) the whole set of agents can read. Inline text or on-disk blobs, size-capped, sha256'd, mime-typed.
 - `cli.py` — local CLI: `memory`/`journal`/`persona`/`files` × `list|show|add|edit|delete|search`.
 - `client.py` — same CLI, but over HTTP to the server (set `CCDK_URL`) so remote agents use it transparently.
@@ -167,8 +167,8 @@ cc-discord-kit memory add "..." --type project --name "X" --tags a,b --about use
 
 cc-discord-kit journal list
 cc-discord-kit journal show 17
-cc-discord-kit journal add "..." --actor agent-1 --tags a,b --title "X" --category note
-cc-discord-kit journal edit 17 "updated body" --tags a,b --category milestone
+cc-discord-kit journal add "..." --actor agent-1 --tags a,b --title "X"
+cc-discord-kit journal edit 17 "updated body" --tags a,b --title "X"
 
 cc-discord-kit files list                           # shared files
 cc-discord-kit files show 3
@@ -185,7 +185,6 @@ cc-discord-kit persona edit agent-1 persona.md      # opens $EDITOR; saves on ex
 cc-discord-kit persona write agent-1 persona.md "<text>"  # write directly
 ```
 
-Journal `--category` is one of `decision`, `incident`, `milestone`, `moment`, `note`, `general` (the catch-all). Unknown values fall back to `general`.
 
 Set `CCDK_URL=https://your-host:8443/` to run the same commands against a remote server.
 
@@ -196,7 +195,7 @@ Set `CCDK_URL=https://your-host:8443/` to run the same commands against a remote
 | Path | What |
 | --- | --- |
 | `/` | memories index — search, optional semantic search, filter by type/about/bot, pin/trash |
-| `/journal` | journal entries timeline with literal or optional semantic search; title + colored category pills |
+| `/journal` | journal entries timeline with literal or optional semantic search; optional title |
 | `/files` | shared file browser — colored type pills + hover legend, grid/list views, inline preview (images, syntax-highlighted code, markdown, JSON, CSV tables, PDF, audio/video), and an edit/preview toggle for text files |
 | `/context` | edit `SHARED.md` (the global rules doc injected at session start) + per-agent brain-file (CLAUDE.md) cards |
 | `/personas` | per-agent persona file editor |
@@ -228,7 +227,7 @@ Set `CCDK_URL=https://your-host:8443/` to run the same commands against a remote
 - `about` — subjects the entry concerns (e.g. `["user"]`, `["domain-x"]`). Filterable.
 - `bot` — if set (e.g. `["agent-1"]`), only that agent includes the entry in default views; others must pass `--all` to see it. Default null = visible to all agents. Manage with `memory share`/`memory unshare`.
 
-Journal entries carry `id, ts, source, actor, text, tags, pinned` plus an optional `title` (short heading) and `category` (one of `decision|incident|milestone|moment|note|general`, rendered as a colored pill).
+Journal entries carry `id, ts, source, actor, text, tags, pinned` plus an optional `title` (short heading).
 
 File records carry `id, ts, name, slug, type, mime, size, sha256, storage, content?/blob_path?, tags, about, bot?, actor`. `storage` is `inline` (text in the JSON) or `blob` (bytes on disk under `<CCDK_DATA_DIR>/files/`). Caps: 100 MB/file, 5 GB total. The web UI serves only provably-inert types inline (raster images, PDF, audio, video) — active types (SVG, HTML) are always forced to download.
 
