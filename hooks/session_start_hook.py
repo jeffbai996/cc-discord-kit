@@ -56,7 +56,21 @@ def main() -> int:
         jou = store.format_journal_for_prompt(days=10)
         if jou:
             print(jou)
-        log(f"session_start bot={bot}: injected {len(mem_full)} full + {len(mem_idx)} idx + {len(jou)} jou chars")
+            print()
+        # journal older tail: breadcrumbs past the 10-day full dump.
+        jou_old = store.format_journal_older_index(after_days=10, before_days=90)
+        if jou_old:
+            print(jou_old)
+            print()
+        # files manifest: the pull signal so agents know what's in the file store.
+        files_idx = store.format_files_index(bot=bot)
+        if files_idx:
+            print(files_idx)
+        log(
+            f"session_start bot={bot}: injected {len(mem_full)} full + "
+            f"{len(mem_idx)} idx + {len(jou)} jou + {len(jou_old)} jou_old + "
+            f"{len(files_idx)} files chars"
+        )
     except Exception:
         log(f"session_start crashed:\n{traceback.format_exc()}")
     return 0

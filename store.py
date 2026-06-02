@@ -475,6 +475,53 @@ def format_memories_index(*, bot: str | None = None,
     return "\n".join(lines)
 
 
+def _file_visible_to(rec: dict, bot: str | None) -> bool:
+    """Mirror filter_memories' visibility rule for a file record.
+
+    Restricted agents default-deny (must be explicitly whitelisted in `bot`);
+    trusted agents see everything unless a whitelist exists that excludes them.
+    bot=None (terminal/generic session) is treated as trusted.
+    """
+    entry_bot = rec.get("bot")
+    if bot in RESTRICTED_BOTS:
+        return bool(entry_bot) and bot in entry_bot
+    if entry_bot:
+        return bool(bot) and bot in entry_bot
+    return True
+
+
+def format_files_index(*, bot: str | None = None) -> str:
+    """Compact manifest of the file store — name + tags + about, no body.
+
+    The session-start digest indexes memories so agents know they exist; files
+    got nothing, so they were a trove that never got pinged. This is the missing
+    pull signal: one body-less line per file. An agent scans it and fetches any
+    file it needs by id. Respects the same visibility model as memories.
+    Returns "" when no files are visible — no stray header.
+    """
+    import files_store  # lazy: avoid a circular import at module load
+    files = [f for f in files_store.load_files() if _file_visible_to(f, bot)]
+    if not files:
+        return ""
+    lines = [
+        "FILES INDEX — names + tags only.",
+        "Fetch a file by id via the files API to read its contents.",
+    ]
+    for f in files:
+        head = f"#{f['id']} {f.get('name', '')}"
+        tags = f.get("tags", [])
+        if tags:
+            head += f" ({','.join(tags[:3])})"
+        about = f.get("about", [])
+        if about:
+            head += f" [{','.join(about)}]"
+        size = f.get("size")
+        if size:
+            head += f" · {size}B"
+        lines.append(f"  {head}")
+    return "\n".join(lines)
+
+
 # ─────────────────────────── journal ───────────────────────────
 
 _journal = JsonStore(JOURNAL_FILE, JOURNAL_CAP)
@@ -573,6 +620,50 @@ def format_journal_for_prompt(days: int = 7) -> str:
         head += "]"
         lines.append(f"- {head}")
         lines.append(f"  {e['text']}")
+    return "\n".join(lines)
+
+
+def _journal_between(after_days: int, before_days: int) -> list[dict]:
+    """Journal entries with ts in [now-before_days, now-after_days) — the band
+    OLDER than the full-text window but newer than the outer cutoff."""
+    now = datetime.now(timezone.utc)
+    lo = now - timedelta(days=before_days)
+    hi = now - timedelta(days=after_days)
+    out = []
+    for e in load_journal():
+        try:
+            ts = datetime.fromisoformat(e.get("ts", "").replace("Z", "+00:00"))
+        except (ValueError, TypeError):
+            continue
+        if lo <= ts < hi:
+            out.append(e)
+    return out
+
+
+def format_journal_older_index(*, after_days: int = 10,
+                               before_days: int = 90) -> str:
+    """Compact breadcrumb index of journal entries older than the full-text dump.
+
+    The digest dumps the last `after_days` of journal in full; older entries
+    (up to the cap) are invisible at session start, so a weeks-long thread
+    silently falls off. This surfaces the day-(after..before) tail as one
+    truncated line each — date + a title/first-60-chars snippet — an agent can
+    fetch in full if relevant. Returns "" when the window is empty.
+    """
+    entries = _journal_between(after_days, before_days)
+    if not entries:
+        return ""
+    lines = [
+        f"JOURNAL OLDER INDEX — days {after_days}–{before_days}, breadcrumbs only.",
+        "Fetch any entry by id to read it in full.",
+    ]
+    for e in entries:
+        ts = e.get("ts", "")[:10]
+        title = (e.get("title") or "").strip()
+        snippet = title or " ".join((e.get("text") or "").split())[:60]
+        if not title and len(e.get("text") or "") > 60:
+            snippet += "…"
+        lines.append(f"  #{e['id']} [{ts}] {snippet}")
     return "\n".join(lines)
 
 
