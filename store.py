@@ -312,6 +312,12 @@ def remove_memory(memory_id: int) -> bool:
     return _memories.remove(memory_id)
 
 
+def estimate_tokens(text: str) -> int:
+    """Cheap token estimate (chars/4). No tokenizer dep — keeps the Zone-B
+    preload budget in the right order of magnitude, not exact."""
+    return len(text) // 4
+
+
 def search_memories(term: str) -> list[dict]:
     term_lower = term.lower()
     return [
@@ -473,6 +479,59 @@ def format_memories_index(*, bot: str | None = None,
                 head += f" [{','.join(about)}]"
             lines.append(f"  {head}")
     return "\n".join(lines)
+
+
+def _preload_log(msg: str) -> None:
+    """Best-effort append to the boot log (same path/convention as the
+    session-start hook's log()). Swallows OSError — logging must never
+    break a session boot."""
+    path = os.path.join(DATA_DIR, "boot_hook.log")
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "a") as f:
+            f.write(f"{msg}\n")
+    except OSError:
+        pass
+
+
+def format_memories_full_preload(*, bot: str | None = None, budget_tokens: int = 0,
+                                 exclude_types=("feedback",)) -> tuple[str, list[int]]:
+    """Zone-B: full memory bodies, newest-first, up to a token budget.
+    budget_tokens=0 => unbounded. Greedily includes newest-first; drops the
+    rest (logged) and returns (block_text, loaded_ids) so the caller can
+    index-only the remainder. feedback excluded by default (already loaded
+    full in Zone A)."""
+    entries = filter_memories(bot=bot)
+    entries = [m for m in entries
+               if m.get("type", "feedback") not in exclude_types]
+    if not entries:
+        return "", []
+    entries = sorted(entries, key=lambda m: -m.get("id", 0))
+    total = len(entries)
+    loaded, dropped, used = [], [], 0
+    for m in entries:
+        body = f"- #{m['id']} {m.get('name', '')}\n  {m.get('text', '')}"
+        cost = estimate_tokens(body)
+        if budget_tokens and used + cost > budget_tokens and loaded:
+            dropped.append(m)
+            continue
+        loaded.append(m)
+        used += cost
+    if dropped:
+        ids = ", ".join(f"#{m['id']}" for m in dropped)
+        _preload_log(f"Zone-B budget {budget_tokens}t: dropped "
+                     f"{len(dropped)} to index-only: {ids}")
+    header = (f"MEMORIES (full text, {len(loaded)} of {total} loaded — "
+              f"the rest are in the index above):")
+    lines = [header]
+    for m in loaded:
+        head = f"- #{m['id']} {m.get('name', '')}"
+        tags = m.get("tags", [])
+        if tags:
+            head += f" ({','.join(tags[:3])})"
+        lines.append(head)
+        lines.append(f"  {m.get('text', '')}")
+    return "\n".join(lines), [m["id"] for m in loaded]
 
 
 def _file_visible_to(rec: dict, bot: str | None) -> bool:
