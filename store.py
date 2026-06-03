@@ -329,6 +329,24 @@ def search_memories(term: str) -> list[dict]:
     ]
 
 
+def recall_memories(query: str, *, bot: str | None = None,
+                    top_k: int = 8) -> tuple[list[dict], str]:
+    """Retrieve surface: vecgrep semantic recall with substring fallback.
+    Returns (entries, source) where source is "vecgrep" or "substring"."""
+    import vecgrep_client  # lazy: network dep
+    by_id = {m["id"]: m for m in load_memories()}
+    try:
+        triples = vecgrep_client.search_corpus_to_ids_with_match(
+            query, vecgrep_client.VECGREP_CORPUS_MEMORIES, want_kind="memory",
+        )
+        ranked = [by_id[eid] for eid, _, _ in triples if eid in by_id]
+        ranked = filter_memories(ranked, bot=bot)
+        return ranked[:top_k], "vecgrep"
+    except vecgrep_client.VecgrepUnavailable:
+        hits = filter_memories(search_memories(query), bot=bot)
+        return hits[:top_k], "substring"
+
+
 def filter_memories(entries: list[dict] | None = None, *,
                     type: str | None = None,
                     about: list[str] | None = None,

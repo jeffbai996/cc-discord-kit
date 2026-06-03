@@ -453,6 +453,26 @@ def cmd_memory(args: argparse.Namespace) -> int:
     return 2
 
 
+def cmd_recall(args: argparse.Namespace) -> int:
+    entries, source = store.recall_memories(
+        args.query, bot=_detect_calling_bot(), top_k=args.top_k,
+    )
+    if not entries:
+        print(f"(no recall hits for {args.query!r}; source={source})")
+        return 0
+    print(f"RECALL — {len(entries)} hit(s) for {args.query!r} (via {source}):")
+    print("-" * 78)
+    for m in entries:
+        head = f"#{m['id']} [{m.get('type', '')}] {m.get('name', '')}"
+        tags = m.get("tags", [])
+        if tags:
+            head += f" ({','.join(tags)})"
+        print(head)
+        print(f"  {m.get('text', '')}")
+        print()
+    return 0
+
+
 def cmd_journal(args: argparse.Namespace) -> int:
     sub = args.sub
     if sub == "list":
@@ -866,6 +886,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_write.add_argument("slot")
     p_write.add_argument("text")
 
+    # recall
+    rec = top.add_parser("recall", help="semantic recall of memories")
+    rec.add_argument("query")
+    rec.add_argument("--top-k", type=int, default=8)
+
     return p
 
 
@@ -897,6 +922,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_files(args)
     if args.cmd == "persona":
         return cmd_persona(args)
+    if args.cmd == "recall":
+        return cmd_recall(args)
     parser.print_help()
     return 2
 
