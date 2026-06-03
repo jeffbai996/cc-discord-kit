@@ -337,7 +337,8 @@ def recall_memories(query: str, *, bot: str | None = None,
     by_id = {m["id"]: m for m in load_memories()}
     try:
         triples = vecgrep_client.search_corpus_to_ids_with_match(
-            query, vecgrep_client.VECGREP_CORPUS_MEMORIES, want_kind="memory",
+            query, vecgrep_client.VECGREP_CORPUS_MEMORIES,
+            top_k=top_k, want_kind="memory",
         )
         ranked = [by_id[eid] for eid, _, _ in triples if eid in by_id]
         ranked = filter_memories(ranked, bot=bot)
@@ -535,7 +536,12 @@ def format_memories_full_preload(*, bot: str | None = None, budget_tokens: int =
     for m in entries:
         body = f"- #{m['id']} {m.get('name', '')}\n  {m.get('text', '')}"
         cost = estimate_tokens(body)
-        if budget_tokens and used + cost > budget_tokens and loaded:
+        # Strictly honor the cap: an entry that would bust the budget is
+        # dropped to index-only even if nothing has loaded yet. A budget
+        # smaller than the newest memory therefore loads zero full bodies
+        # (everything falls to the index + recall) rather than injecting an
+        # oversized memory and silently defeating the cap.
+        if budget_tokens and used + cost > budget_tokens:
             dropped.append(m)
             continue
         loaded.append(m)

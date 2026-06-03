@@ -10,8 +10,9 @@ def test_recall_uses_vecgrep_rank_order(fresh_store, monkeypatch):
     b = store.save_memory("banana stuff", name="banana", type="project")
     monkeypatch.setattr(
         vecgrep_client, "search_corpus_to_ids_with_match",
-        lambda q, corpus, want_kind=None: [(b["id"], 95.0, frozenset({"vector"})),
-                                           (a["id"], 80.0, frozenset({"vector"}))],
+        lambda q, corpus, top_k=None, want_kind=None: [
+            (b["id"], 95.0, frozenset({"vector"})),
+            (a["id"], 80.0, frozenset({"vector"}))],
     )
     entries, source = store.recall_memories("fruit")
     assert source == "vecgrep"
@@ -37,7 +38,23 @@ def test_recall_top_k_caps_results(fresh_store, monkeypatch):
            for i in range(3)]
     monkeypatch.setattr(
         vecgrep_client, "search_corpus_to_ids_with_match",
-        lambda q, corpus, want_kind=None: [(i, 90.0, frozenset()) for i in reversed(ids)],
+        lambda q, corpus, top_k=None, want_kind=None: [
+            (i, 90.0, frozenset()) for i in reversed(ids)],
     )
     entries, _ = store.recall_memories("anything", top_k=2)
     assert len(entries) == 2
+
+
+def test_recall_forwards_top_k_to_vecgrep(fresh_store, monkeypatch):
+    store, _ = fresh_store
+    store.save_memory("body", name="m", type="project")
+    seen = {}
+
+    def _capture(q, corpus, top_k=None, want_kind=None):
+        seen["top_k"] = top_k
+        return []
+    monkeypatch.setattr(vecgrep_client, "search_corpus_to_ids_with_match", _capture)
+    store.recall_memories("anything", top_k=50)
+    # the requested top_k must reach vecgrep — slicing afterward can't recover
+    # hits that were never fetched.
+    assert seen["top_k"] == 50

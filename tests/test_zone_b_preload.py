@@ -48,6 +48,20 @@ def test_preload_budget_drops_and_reports(fresh_store):
     assert "2 of 3" in block
 
 
+def test_preload_budget_below_newest_loads_zero(fresh_store):
+    store, _ = fresh_store
+    # A budget smaller than the single newest entry must load ZERO full bodies
+    # (strict cap) — not inject the oversized memory anyway. Everything falls
+    # to index-only.
+    m = store.save_memory("a fairly long body that exceeds the tiny budget",
+                          name="big", type="project")
+    body = f"- #{m['id']} {m['name']}\n  {m['text']}"
+    tiny = store.estimate_tokens(body) - 1  # one token under the only entry
+    block, loaded = store.format_memories_full_preload(budget_tokens=tiny)
+    assert loaded == []
+    assert "0 of 1" in block
+
+
 def test_preload_empty_store(fresh_store):
     store, _ = fresh_store
     block, loaded = store.format_memories_full_preload(budget_tokens=0)
