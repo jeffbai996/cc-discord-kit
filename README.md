@@ -81,7 +81,7 @@ The store/server layer originated here; the Claude Code hooks were developed alo
 **The store** (Discord-agnostic — works on its own)
 - `store.py` — the JSON memory + journal store. Atomic writes, last-writer-wins. Memories carry an optional `bot` whitelist (share/unshare per agent); journal entries carry an optional `title`. A freeform `SHARED.md` rules doc sits alongside, injected at session start.
 - `files_store.py` — a third tier: shared **files** (documents, references, datasets, images, PDFs) the whole set of agents can read. Inline text or on-disk blobs, size-capped, sha256'd, mime-typed.
-- `cli.py` — local CLI: `memory`/`journal`/`persona`/`files` × `list|show|add|edit|delete|search`.
+- `cli.py` — local CLI: `memory`/`journal`/`persona`/`files` × `list|show|add|edit|delete|search`, plus `recall` (semantic retrieve over the store; see [docs/retrieval-controller.md](docs/retrieval-controller.md)).
 - `client.py` — same CLI, but over HTTP to the server (set `CCDK_URL`) so remote agents use it transparently.
 - `server.py` — Flask web UI + JSON API. ⌘K palette, editors, markdown, pinning/trash/history/merge, a file browser with inline preview, optional semantic search.
 - `personas.py` — where each agent keeps its persona files (configured in `agents.yaml`); auto-commits if they live in a git repo.
@@ -134,6 +134,7 @@ All env vars optional unless noted.
 | `CCDK_HOST` / `CCDK_PORT` | `server.py` | Flask bind. Default `127.0.0.1:5005`. **Don't bind to 0.0.0.0** — this is a personal store, not a public service. |
 | `CCDK_URL_PREFIX` | `server.py` | for hosting under a path (e.g. `/cc-discord-kit` behind a reverse proxy). |
 | `CCDK_BOT` | `cli.py`, hooks | explicit agent identity. Otherwise auto-detected from `CLAUDE_CONFIG_DIR` last segment, then hostname. |
+| `CCDK_PRELOAD_BUDGET` | `hooks/session_start_hook.py` | token budget for the full-body memory preload at session start. `0` (default) = load every memory body; a positive value caps it (newest-first), the rest stay index-only and are reached via `recall`. See [docs/retrieval-controller.md](docs/retrieval-controller.md). |
 | `CCDK_DISCORD_TOKEN` | `digest.py`, `discord_handler.py`, `hooks/stop_hook.py` | bot token for the discord side. `stop_hook` uses it to post save/edit/delete confirmation cards back to the originating channel. |
 | `CCDK_GUILD_IDS` | `discord_handler.py` | optional CSV of Discord guild IDs for instant per-server slash command sync. Without this, slash commands sync globally (~1hr propagation). |
 | `CCDK_DIGEST_CHANNELS` | `digest.py` | comma-separated `name:id` pairs for digest pull. |
