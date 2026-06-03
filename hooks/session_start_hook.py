@@ -46,9 +46,18 @@ def main() -> int:
     try:
         bot = _detect_bot()
         mem_full = store.format_memories_for_prompt(bot=bot, types=["feedback"])
-        mem_idx = store.format_memories_index(bot=bot, exclude_types=["feedback"])
+        budget = int(os.environ.get("CCDK_PRELOAD_BUDGET", "0") or "0")
+        mem_preload, loaded_ids = store.format_memories_full_preload(
+            bot=bot, budget_tokens=budget, exclude_types=("feedback",),
+        )
+        mem_idx = store.format_memories_index(
+            bot=bot, exclude_types=["feedback"], exclude_ids=loaded_ids,
+        )
         if mem_full:
             print(mem_full)
+            print()
+        if mem_preload:
+            print(mem_preload)
             print()
         if mem_idx:
             print(mem_idx)
@@ -68,6 +77,7 @@ def main() -> int:
             print(files_idx)
         log(
             f"session_start bot={bot}: injected {len(mem_full)} full + "
+            f"{len(mem_preload)} preload ({len(loaded_ids)} bodies) + "
             f"{len(mem_idx)} idx + {len(jou)} jou + {len(jou_old)} jou_old + "
             f"{len(files_idx)} files chars"
         )

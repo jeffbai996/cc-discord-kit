@@ -445,17 +445,22 @@ def format_memories_for_prompt(*, bot: str | None = None,
 
 def format_memories_index(*, bot: str | None = None,
                           types: list[str] | None = None,
-                          exclude_types: list[str] | None = None) -> str:
+                          exclude_types: list[str] | None = None,
+                          exclude_ids: list[int] | None = None) -> str:
     """Compact index — name + type + tags only, no body. ~800 tokens for 60 entries.
     For UserPromptSubmit hooks where the full dump is too expensive every turn.
     Bot can `cc-discord-kit memory show <id>` to read any specific entry in full.
     `types` restricts to only those types; `exclude_types` drops those types.
+    `exclude_ids` drops specific ids (e.g. already full-preloaded by Zone-B).
     """
     entries = filter_memories(bot=bot)
     if types is not None:
         entries = [m for m in entries if m.get("type", "feedback") in types]
     if exclude_types is not None:
         entries = [m for m in entries if m.get("type", "feedback") not in exclude_types]
+    if exclude_ids:
+        skip = set(exclude_ids)
+        entries = [m for m in entries if m.get("id") not in skip]
     if not entries:
         return ""
     lines = [
