@@ -413,13 +413,15 @@ def cmd_memory(args: argparse.Namespace) -> int:
         bot_list = _parse_csv(args.bot) if args.bot else None
         m = store.save_memory(args.text, type=args.type or "feedback",
                               name=args.name or "", tags=tags,
-                              about=about, bot=bot_list)
+                              about=about, bot=bot_list,
+                              author=_detect_calling_bot() or "unknown")
         print(f"Saved #{m['id']}: {m.get('name', '')}")
         _post_card_if_discord({"kind": "memory_saved", "entry": m}, args)
         return 0
     if sub == "edit":
         before = _find_memory(args.id)
-        ok = store.edit_memory(args.id, args.text)
+        ok = store.edit_memory(args.id, args.text,
+                               editor=_detect_calling_bot() or "unknown")
         if not ok:
             print(f"Memory #{args.id} not found", file=sys.stderr)
             return 1
