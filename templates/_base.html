@@ -78,6 +78,17 @@ h1, h2, h3 { letter-spacing: -0.015em; font-weight: 600; }
 h2 { font-size: 1.4rem; margin: 0.4rem 0 0.4rem; }
 .muted { color: var(--muted); }
 
+/* lifecycle tier dot — green Live / amber Cache / red Storage. Matches the
+   semantic-score color idiom (#3fb950 / #d29922 / #ff7b72). Absent tier
+   renders Live (green) for backward compat. */
+.tier-dot { font-size: 0.85rem; line-height: 1; vertical-align: middle;
+            display: inline-block; }
+.tier-dot.tier-live    { color: #3fb950; }
+.tier-dot.tier-cache   { color: #d29922; }
+.tier-dot.tier-storage { color: #ff7b72; }
+/* attribution byline — small + muted, like the other metadata */
+.byline { color: var(--muted); font-size: 0.78rem; }
+
 /* pills (default) */
 .pill { display: inline-block; background: var(--pill); padding: 0.12rem 0.55rem;
         border-radius: 999px; font-size: 0.78rem; margin-right: 0.3rem;
