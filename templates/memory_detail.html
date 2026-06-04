@@ -99,7 +99,7 @@
   </form>
 
   <form method="post" action="{{ url_for('memory_delete_form', memory_id=m.id) }}"
-        onsubmit="return confirm('Delete memory #{{ m.id }}?');"
+        data-confirm="Delete memory #{{ m.id }}? It moves to trash and can be restored."
         style="margin-top: 1rem;">
     <button class="btn-danger" type="submit">delete memory</button>
   </form>

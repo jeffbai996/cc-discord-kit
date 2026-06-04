@@ -100,14 +100,16 @@
         </button>
       </td>
       <td class="pin-cell">
-        <form method="post" action="{{ url_for('memory_pin', memory_id=m.id) }}" style="margin: 0;">
-          <button class="pin-btn {% if m.pinned %}pinned{% endif %}" type="submit"
-                  title="{% if m.pinned %}unpin{% else %}pin to top{% endif %}" aria-label="pin">
-            <svg class="pin-icon"><use href="#i-pin"/></svg>
-          </button>
-        </form>
         {% set _tier = m.tier or 'Live' %}
-        <span class="tier-dot tier-{{ _tier|lower }}" title="tier: {{ _tier }}"></span>
+        <div class="pin-wrap">
+          <span class="tier-dot tier-{{ _tier|lower }}" title="tier: {{ _tier }}"></span>
+          <form method="post" action="{{ url_for('memory_pin', memory_id=m.id) }}" style="margin: 0;">
+            <button class="pin-btn {% if m.pinned %}pinned{% endif %}" type="submit"
+                    title="{% if m.pinned %}unpin{% else %}pin to top{% endif %}" aria-label="pin">
+              <svg class="pin-icon"><use href="#i-pin"/></svg>
+            </button>
+          </form>
+        </div>
       </td>
       <td class="id-cell">
         <a class="entry" href="{{ url_for('memory_detail', memory_id=m.id) }}">#<strong>{{ m.id }}</strong></a>
@@ -139,7 +141,7 @@
       <td class="small">
         {% for a in m.about or [] %}<a class="pill" href="{{ url_for('index', about=a) }}">{{ a }}</a>{% endfor %}
       </td>
-      <td class="small">
+      <td class="small tags-cell">
         {% for t in m.tags or [] %}<a class="pill" href="{{ url_for('index', q=t) }}">{{ t }}</a>{% endfor %}
       </td>
       <td class="small date">{{ (m.ts or '')[:10] }}</td>
@@ -321,14 +323,15 @@
       html +=
         '<tr class="entry-row ' + pinClass + '" data-entry-id="' + m.id + '">' +
         '<td class="expand-cell"><button type="button" class="expand-btn" aria-expanded="false" aria-controls="expand-mem-' + m.id + '" title="expand"><span class="chevron">▸</span></button></td>' +
-        '<td class="pin-cell"><form method="post" action="' + pinAction + '" style="margin: 0;">' +
+        '<td class="pin-cell"><div class="pin-wrap">' + tierDot +
+        '<form method="post" action="' + pinAction + '" style="margin: 0;">' +
         '<button class="pin-btn ' + pinBtnClass + '" type="submit" title="' + pinTitle + '" aria-label="pin">' +
-        '<svg class="pin-icon"><use href="#i-pin"/></svg></button></form>' + tierDot + "</td>" +
+        '<svg class="pin-icon"><use href="#i-pin"/></svg></button></form></div></td>' +
         '<td class="id-cell"><a class="entry" href="' + detailUrl + '">#<strong>' + m.id + "</strong></a>" + scoreHtml + "</td>" +
         '<td><span class="pill type-' + escHtml(typeClass) + '">' + escHtml(typeLabel) + "</span></td>" +
         '<td><a class="entry" href="' + detailUrl + '">' + highlightHtml(nameDisplay, q) + "</a>" + botPill + "</td>" +
         '<td class="small">' + aboutsHtml + "</td>" +
-        '<td class="small">' + tagsHtml + "</td>" +
+        '<td class="small tags-cell">' + tagsHtml + "</td>" +
         '<td class="small date">' + escHtml(dateStr) + "</td>" +
         '<td class="row-actions"><form method="post" action="' + delAction +
         '" class="row-delete-form" data-confirm="Delete memory #' + m.id +
@@ -348,6 +351,8 @@
     }
     html += "</tbody></table>";
     resultsContainer.innerHTML = html;
+    // Tell the shared tag-overflow collapser to re-run on the new rows.
+    document.dispatchEvent(new CustomEvent("rows:rendered"));
   }
 
   function updateChrome(data) {

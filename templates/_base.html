@@ -103,12 +103,28 @@ a.pill:hover { color: var(--fg); border-color: var(--border-2);
 .pill.tier-live    { background: rgba(63,185,80,0.14);  color: #56d364; border-color: rgba(63,185,80,0.38); }
 .pill.tier-cache   { background: rgba(210,153,34,0.14); color: #e3b341; border-color: rgba(210,153,34,0.38); }
 .pill.tier-storage { background: rgba(255,123,114,0.14);color: #ff7b72; border-color: rgba(255,123,114,0.38); }
-/* tier dot — small solid color cue under the pin icon (Live/Cache/Storage) */
-.tier-dot { display: block; width: 7px; height: 7px; border-radius: 50%;
-            margin: 0.15rem auto 0; }
+/* tier dot — small solid color cue to the LEFT of the pin icon, inline and
+   vertically centered (was stacked under the pin). The pin-cell is a flex
+   row [dot] [pin]; see .pin-cell below. */
+.tier-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+            flex: 0 0 auto; }
 .tier-dot.tier-live    { background: #3fb950; }
 .tier-dot.tier-cache   { background: #d29922; }
 .tier-dot.tier-storage { background: #f85149; }
+
+/* tags cell: cap to a single line. JS hides pills that wrap and appends a
+   +N chip (see _base.html tag-overflow script). overflow:hidden keeps the
+   row height fixed even before JS runs / if JS is off. */
+td.tags-cell {
+  overflow: hidden;
+  max-width: 0;        /* let the table allocate; pills clip on overflow */
+  white-space: nowrap; /* pre-JS: clip to one line, no tall rows */
+}
+td.tags-cell .pill { white-space: nowrap; }
+.pill.tag-more { cursor: pointer; color: var(--muted);
+                 background: var(--bg-3); border-color: var(--border-2);
+                 font-variant-numeric: tabular-nums; }
+.pill.tag-more:hover { color: var(--fg); border-color: var(--accent); }
 
 /* file-category pills (files browser) — keys mirror files_store.FILE_CATEGORIES.
    Pale tint bg + saturated text so they read on the dark theme. */
@@ -320,8 +336,11 @@ details summary::-webkit-details-marker { color: var(--muted); }
 .pin-badge { display: inline-block; margin-left: 0.35rem; vertical-align: middle;
              color: #f0c674; }
 .pin-badge .pin-icon { fill: #f0c674; stroke: #f0c674; }
-.pin-cell { width: 1.6rem; padding-left: 0.35rem !important;
-            padding-right: 0 !important; text-align: center; }
+.pin-cell { width: 2.3rem; padding-left: 0.45rem !important;
+            padding-right: 0 !important; }
+/* inline row: [dot] [pin], vertically centered, spaced. */
+.pin-cell .pin-wrap { display: flex; align-items: center; gap: 0.4rem; }
+.pin-cell .pin-wrap form { margin: 0; display: inline-flex; }
 .pin-btn { background: none; border: none; padding: 0.25rem 0.3rem; cursor: pointer;
            color: var(--muted); opacity: 0.25; line-height: 1;
            transition: opacity 120ms ease, color 120ms ease; border-radius: 4px; }
@@ -532,6 +551,51 @@ tr.is-pinned:hover td { background: rgba(240, 198, 116, 0.08); }
 }
 .cmdk-foot .kbd { margin-right: 0.2rem; }
 
+/* ─── Confirm modal (replaces window.confirm — iOS Safari throttles the
+   native dialog inside submit handlers, so destructive buttons looked dead
+   on iPad). Pure DOM, no native dialog, identical on every device. Reuses
+   the cmdk overlay aesthetic. ─── */
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 9500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  backdrop-filter: blur(2px);
+}
+.confirm-overlay[hidden] { display: none; }
+.confirm-modal {
+  width: min(440px, calc(100vw - 2rem));
+  background: var(--bg-2);
+  border: 1px solid var(--border-2);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+.confirm-body {
+  padding: 1.2rem 1.3rem 0.4rem;
+  font-size: 0.95rem;
+  line-height: 1.55;
+  color: var(--fg);
+  white-space: pre-wrap;   /* honor \n in messages (merge/trash use them) */
+  word-wrap: break-word;
+}
+.confirm-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  padding: 1rem 1.3rem 1.2rem;
+}
+.confirm-foot .btn { padding: 0.5rem 1.1rem; }
+/* Touch targets: full-width stacked buttons on phones */
+@media (max-width: 480px) {
+  .confirm-foot { flex-direction: column-reverse; }
+  .confirm-foot .btn { width: 100%; text-align: center; }
+}
+
 /* Inline row controls */
 .expand-cell { width: 1.4rem; padding-right: 0.2rem; }
 .expand-btn {
@@ -667,6 +731,20 @@ tr:hover .row-delete-btn { opacity: 0.6; }
       <span><span class="kbd">↑</span><span class="kbd">↓</span> nav</span>
       <span><span class="kbd">↵</span> select</span>
       <span><span class="kbd">esc</span> close</span>
+    </div>
+  </div>
+</div>
+
+<!-- Shared confirm modal. In-page replacement for window.confirm() (which
+     iOS Safari throttles inside submit handlers → dead delete buttons on
+     iPad). Any form/link carrying data-confirm="message" routes through
+     this. Confirm submits the pending form; cancel/Esc/backdrop dismisses. -->
+<div id="confirm-overlay" class="confirm-overlay" role="alertdialog" aria-modal="true" aria-labelledby="confirm-body" hidden>
+  <div class="confirm-modal">
+    <div id="confirm-body" class="confirm-body"></div>
+    <div class="confirm-foot">
+      <button type="button" id="confirm-cancel" class="btn btn-ghost">cancel</button>
+      <button type="button" id="confirm-ok" class="btn btn-danger">confirm</button>
     </div>
   </div>
 </div>
@@ -863,12 +941,141 @@ document.addEventListener("click", function (ev) {
   }
 });
 
-document.addEventListener("submit", function (ev) {
-  const form = ev.target.closest(".row-delete-form");
-  if (!form) return;
-  const msg = form.dataset.confirm || "Delete this entry?";
-  if (!window.confirm(msg)) ev.preventDefault();
-});
+// In-page confirm modal. Replaces window.confirm() everywhere — iOS Safari
+// suppresses the native dialog when it's triggered from a submit handler
+// (not a "direct" tap), so destructive buttons silently did nothing on
+// iPad. This is plain DOM, so it behaves identically on every device.
+//
+// Usage: put data-confirm="message" on any <form>. On submit we stop the
+// form, show the modal, and only let the form through once the user taps
+// "confirm". Supports \n in the message (rendered via white-space: pre-wrap).
+(function () {
+  const overlay = document.getElementById("confirm-overlay");
+  const body    = document.getElementById("confirm-body");
+  const okBtn   = document.getElementById("confirm-ok");
+  const cancelBtn = document.getElementById("confirm-cancel");
+  if (!overlay) return;
+
+  let resolver = null;  // resolve() of the currently-open confirm promise
+
+  // Promise-based confirm. Resolves true (confirm) or false (cancel/dismiss).
+  // Exposed as window.uiConfirm so async handlers (digest/transcripts) can
+  // `await uiConfirm(msg)` instead of the iPad-broken native confirm().
+  function uiConfirm(msg) {
+    return new Promise(function (resolve) {
+      resolver = resolve;
+      body.textContent = msg || "Are you sure?";
+      overlay.removeAttribute("hidden");
+      setTimeout(function () { okBtn.focus(); }, 0); // iOS focus quirk
+    });
+  }
+  window.uiConfirm = uiConfirm;
+
+  function settle(result) {
+    overlay.setAttribute("hidden", "");
+    const r = resolver;
+    resolver = null;
+    if (r) r(result);
+  }
+
+  // Auto-wire any form carrying data-confirm. Capture phase so we beat the
+  // native submit and other listeners. On confirm we re-fire the form with
+  // a one-shot flag so we don't loop back into the modal.
+  document.addEventListener("submit", function (ev) {
+    const form = ev.target.closest && ev.target.closest("form[data-confirm]");
+    if (!form) return;
+    if (form.dataset.confirmed === "1") {
+      form.removeAttribute("data-confirmed");
+      return; // confirmed already — let it through
+    }
+    ev.preventDefault();
+    uiConfirm(form.dataset.confirm).then(function (ok) {
+      if (!ok) return;
+      form.dataset.confirmed = "1";
+      if (typeof form.requestSubmit === "function") form.requestSubmit();
+      else form.submit();
+    });
+  }, true);
+
+  okBtn.addEventListener("click", function () { settle(true); });
+  cancelBtn.addEventListener("click", function () { settle(false); });
+  overlay.addEventListener("click", function (ev) {
+    if (ev.target === overlay) settle(false);
+  });
+  document.addEventListener("keydown", function (ev) {
+    if (overlay.hasAttribute("hidden")) return;
+    if (ev.key === "Escape") { ev.preventDefault(); settle(false); }
+    else if (ev.key === "Enter") { ev.preventDefault(); settle(true); }
+  });
+})();
+
+// Tag-overflow collapse. Memories with many tags blew the row height up.
+// We cap the tags cell to a single line: measure which pills fit, hide the
+// rest, and append a muted "+N" chip. Tapping +N (or the row's expand
+// chevron) reveals the full list. Runs on load AND after the live-search
+// renderer rebuilds the table (it dispatches 'rows:rendered').
+(function () {
+  function collapseTags(cell) {
+    // Reset any prior collapse so re-measuring is clean (re-render reuse).
+    const existing = cell.querySelector(".tag-more");
+    if (existing) existing.remove();
+    const pills = Array.prototype.slice.call(cell.querySelectorAll(".pill"));
+    pills.forEach(function (p) { p.style.display = ""; });
+    if (pills.length <= 1) return;
+
+    // The cell is capped to one line via CSS (.tags-cell). Find the first
+    // pill that wraps to a second line (its offsetTop exceeds the first
+    // pill's), hide it and everything after, and show a +N chip.
+    const firstTop = pills[0].offsetTop;
+    let firstHidden = -1;
+    for (let i = 1; i < pills.length; i++) {
+      if (pills[i].offsetTop > firstTop) { firstHidden = i; break; }
+    }
+    if (firstHidden === -1) return; // all fit
+
+    // We need room for the +N chip too, so back off one more pill if the
+    // chip itself would push to a second line. Cheap heuristic: hide from
+    // firstHidden on, then if the chip overflows, hide one earlier.
+    let cut = firstHidden;
+    function applyCut(c) {
+      pills.forEach(function (p, i) { p.style.display = i < c ? "" : "none"; });
+    }
+    applyCut(cut);
+    const more = document.createElement("span");
+    more.className = "pill tag-more";
+    more.textContent = "+" + (pills.length - cut);
+    more.title = "show all tags";
+    cell.appendChild(more);
+    // If the chip wrapped, drop one more visible pill (once is enough in
+    // practice for these short pills).
+    if (more.offsetTop > firstTop && cut > 1) {
+      cut -= 1;
+      applyCut(cut);
+      more.textContent = "+" + (pills.length - cut);
+    }
+    // Clicking +N opens the row's expand panel (full tags live there).
+    more.addEventListener("click", function (ev) {
+      ev.preventDefault();
+      const row = cell.closest("tr");
+      const expandBtn = row && row.querySelector(".expand-btn");
+      if (expandBtn) expandBtn.click();
+    });
+  }
+
+  function run() {
+    document.querySelectorAll(".tags-cell").forEach(collapseTags);
+  }
+
+  document.addEventListener("DOMContentLoaded", run);
+  // Live-search renderer fires this after swapping the table body.
+  document.addEventListener("rows:rendered", run);
+  // Re-collapse on resize (column widths change). Debounced.
+  let rT = null;
+  window.addEventListener("resize", function () {
+    if (rT) clearTimeout(rT);
+    rT = setTimeout(run, 150);
+  });
+})();
 </script>
 {% block scripts %}{% endblock %}
 </body>

@@ -6,7 +6,7 @@
   <h2 style="margin: 0;">trash</h2>
   {% if entries %}
     <form method="post" action="{{ url_for('trash_purge_all') }}" style="margin: 0;"
-          onsubmit="return confirm('Permanently empty trash? This wipes {{ entries|length }} delete{{ '' if entries|length == 1 else 's' }} from recovery — tombstones (and IDs) stay reserved. Cannot be undone.');">
+          data-confirm="Permanently empty trash? This wipes {{ entries|length }} delete{{ '' if entries|length == 1 else 's' }} from recovery — tombstones (and IDs) stay reserved. Cannot be undone.">
       <button class="btn btn-ghost" type="submit"
               style="color: #c66; border-color: rgba(207, 34, 46, 0.35);"
               title="permanently wipe all trash entries (IDs stay reserved)">empty trash</button>
@@ -55,7 +55,7 @@
           <button class="btn btn-ghost" type="submit">restore</button>
         </form>
         <form method="post" action="{{ url_for('trash_purge') }}" style="margin: 0; display: inline-block;"
-              onsubmit="return confirm('Permanently delete {{ h.kind }} #{{ h.id }}? This cannot be undone.');">
+              data-confirm="Permanently delete {{ h.kind }} #{{ h.id }}? This cannot be undone.">
           <input type="hidden" name="ts" value="{{ h.ts }}">
           <input type="hidden" name="kind" value="{{ h.kind }}">
           <input type="hidden" name="id" value="{{ h.id }}">

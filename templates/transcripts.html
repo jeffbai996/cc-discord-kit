@@ -150,8 +150,8 @@
   const btn = document.getElementById("tx-fill-raw");
   const ta = document.getElementById("tx-text");
   if (!btn || !ta) return;
-  btn.addEventListener("click", function () {
-    if (ta.value.trim() && !confirm("Replace existing draft?")) return;
+  btn.addEventListener("click", async function () {
+    if (ta.value.trim() && !(await window.uiConfirm("Replace existing draft?"))) return;
     const lines = [];
     document.querySelectorAll(".tx-msg").forEach(function (msg) {
       const ch = msg.querySelector(".tx-msg-channel")?.textContent?.trim() || "?";
@@ -212,7 +212,7 @@
   }
 
   btn.addEventListener("click", async function () {
-    if (ta.value.trim() && !confirm("Replace existing draft with auto-summary?")) return;
+    if (ta.value.trim() && !(await window.uiConfirm("Replace existing draft with auto-summary?"))) return;
     btn.disabled = true;
     status.textContent = "summarizing…";
     try {

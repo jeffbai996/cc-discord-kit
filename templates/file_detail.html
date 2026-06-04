@@ -111,7 +111,7 @@
   </form>
 
   <form method="post" action="{{ url_for('file_delete_form', file_id=f.id) }}"
-        onsubmit="return confirm('Delete file #{{ f.id }} ({{ f.name }})?');"
+        data-confirm="Delete file #{{ f.id }} ({{ f.name }})? It moves to trash and can be restored."
         style="margin-top: 1rem;">
     <button class="btn-danger" type="submit">delete file</button>
   </form>

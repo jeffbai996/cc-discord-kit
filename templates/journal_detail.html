@@ -69,7 +69,7 @@
   </form>
 
   <form method="post" action="{{ url_for('journal_delete_form', entry_id=e.id) }}"
-        onsubmit="return confirm('Delete journal entry #{{ e.id }}?');"
+        data-confirm="Delete journal entry #{{ e.id }}? It moves to trash and can be restored."
         style="margin-top: 1rem;">
     <button class="btn-danger" type="submit">delete entry</button>
   </form>

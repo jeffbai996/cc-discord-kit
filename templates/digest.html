@@ -155,7 +155,7 @@
   }
 
   btn.addEventListener("click", async function () {
-    if (ta.value.trim() && !confirm("Replace existing draft with auto-summary?")) return;
+    if (ta.value.trim() && !(await window.uiConfirm("Replace existing draft with auto-summary?"))) return;
     btn.disabled = true;
     status.textContent = "summarizing…";
     try {
