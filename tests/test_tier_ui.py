@@ -52,20 +52,25 @@ def test_detail_page_shows_author_byline(client):
     assert "agent-2" in html      # last_editor (differs)
 
 
-def test_detail_page_renders_tier_dot(client):
+def test_detail_page_renders_tier_pill(client):
     c, store = client
     m = store.save_memory("body text", name="m", author="agent-1")
     r = c.get(f"/memory/{m['id']}")
     assert r.status_code == 200
-    assert "tier-dot" in r.get_data(as_text=True)
+    html = r.get_data(as_text=True)
+    # tier renders as a pill (absent tier => Live), not a dot
+    assert "pill tier-live" in html
+    assert "tier-dot" not in html
 
 
-def test_index_page_renders_tier_dot(client):
+def test_index_page_renders_tier_pill(client):
     c, store = client
     store.save_memory("body text", name="m", author="agent-1")
     r = c.get("/")
     assert r.status_code == 200
-    assert "tier-dot" in r.get_data(as_text=True)
+    html = r.get_data(as_text=True)
+    assert "pill tier-live" in html
+    assert "tier-dot" not in html
 
 
 def test_index_byline_shows_author(client):

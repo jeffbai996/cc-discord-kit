@@ -108,8 +108,6 @@
         </form>
       </td>
       <td class="id-cell">
-        {% set _tier = m.tier or 'Live' %}
-        <span class="tier-dot tier-{{ _tier|lower }}" title="tier: {{ _tier }}">&#9679;</span>
         <a class="entry" href="{{ url_for('memory_detail', memory_id=m.id) }}">#<strong>{{ m.id }}</strong></a>
         {% if mode in ('semantic', 'hybrid') and semantic_scores.get(m.id) %}
           {% set s = semantic_scores[m.id] %}
@@ -125,7 +123,11 @@
           {% endif %}
         {% endif %}
       </td>
-      <td><span class="pill type-{{ m.type or 'default' }}">{{ m.type | type_label }}</span></td>
+      <td>
+        <span class="pill type-{{ m.type or 'default' }}">{{ m.type | type_label }}</span>
+        {% set _tier = m.tier or 'Live' %}
+        <span class="pill tier-{{ _tier|lower }}" title="tier: {{ _tier }}">{{ _tier }}</span>
+      </td>
       <td>
         <a class="entry" href="{{ url_for('memory_detail', memory_id=m.id) }}">
           {{ (m.name or m.text[:80]) | highlight(q) }}
@@ -303,10 +305,11 @@
       const typeLabel = m.type === "user" ? "profile" : (m.type || "");
       const dateStr = (m.ts || "").slice(0, 10);
 
-      // Lifecycle tier dot — absent tier renders Live (green).
+      // Lifecycle tier pill — absent tier renders Live. Sits in the type cell
+      // next to the type pill (same visual family), not in the cramped id cell.
       const tier = m.tier || "Live";
-      const tierDot = '<span class="tier-dot tier-' + escHtml(tier.toLowerCase()) +
-        '" title="tier: ' + escHtml(tier) + '">●</span> ';
+      const tierPill = ' <span class="pill tier-' + escHtml(tier.toLowerCase()) +
+        '" title="tier: ' + escHtml(tier) + '">' + escHtml(tier) + "</span>";
       // Attribution byline for the expand row.
       const bylineHtml = m.author
         ? ' <span class="muted" style="margin-left: 1rem;">by</span> <span class="byline">' +
@@ -321,8 +324,8 @@
         '<td class="pin-cell"><form method="post" action="' + pinAction + '" style="margin: 0;">' +
         '<button class="pin-btn ' + pinBtnClass + '" type="submit" title="' + pinTitle + '" aria-label="pin">' +
         '<svg class="pin-icon"><use href="#i-pin"/></svg></button></form></td>' +
-        '<td class="id-cell">' + tierDot + '<a class="entry" href="' + detailUrl + '">#<strong>' + m.id + "</strong></a>" + scoreHtml + "</td>" +
-        '<td><span class="pill type-' + escHtml(typeClass) + '">' + escHtml(typeLabel) + "</span></td>" +
+        '<td class="id-cell"><a class="entry" href="' + detailUrl + '">#<strong>' + m.id + "</strong></a>" + scoreHtml + "</td>" +
+        '<td><span class="pill type-' + escHtml(typeClass) + '">' + escHtml(typeLabel) + "</span>" + tierPill + "</td>" +
         '<td><a class="entry" href="' + detailUrl + '">' + highlightHtml(nameDisplay, q) + "</a>" + botPill + "</td>" +
         '<td class="small">' + aboutsHtml + "</td>" +
         '<td class="small">' + tagsHtml + "</td>" +

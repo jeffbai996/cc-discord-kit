@@ -5,13 +5,13 @@
 <div class="detail">
   {% set _tier = m.tier or 'Live' %}
   <h2>
-    <span class="tier-dot tier-{{ _tier|lower }}" title="tier: {{ _tier }}">&#9679;</span>
     <span class="muted" style="font-weight: 500;">#</span><strong>{{ m.id }}</strong>
     <span style="margin-left: 0.4rem;">{{ m.name or 'untitled' }}</span>
     {% if m.pinned %}<span class="pin-badge" title="pinned"><svg class="pin-icon"><use href="#i-pin"/></svg></span>{% endif %}
   </h2>
   <div class="meta">
     <span class="pill type-{{ m.type or 'default' }}">{{ m.type | type_label }}</span>
+    <span class="pill tier-{{ _tier|lower }}" title="tier: {{ _tier }}">{{ _tier }}</span>
     {% if m.about %}
       <span class="sep">·</span>
       {% for a in m.about %}<a class="pill" href="{{ url_for('index', about=a) }}">{{ a }}</a>{% endfor %}
