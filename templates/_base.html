@@ -91,6 +91,12 @@ a.pill:hover { color: var(--fg); border-color: var(--border-2);
                background: var(--bg-3); }
 
 /* type pills — semantic colors */
+/* Inline type pill shown next to the name ON MOBILE ONLY. The type column is
+   .small (hidden ≤700px) so the table doesn't overflow on phones; this keeps
+   the type pill visible where there's room — beside the name. Hidden on
+   desktop (the dedicated type column shows it there). */
+.type-inline { display: none; margin-left: 0.4rem; vertical-align: middle; }
+@media (max-width: 700px) { .type-inline { display: inline-block; } }
 .pill.type-feedback { background: var(--t-feedback-bg); color: var(--t-feedback-fg); border-color: var(--t-feedback-bd); }
 .pill.type-project  { background: var(--t-project-bg);  color: var(--t-project-fg);  border-color: var(--t-project-bd); }
 .pill.type-user     { background: var(--t-user-bg);     color: var(--t-user-fg);     border-color: var(--t-user-bd); }
@@ -420,27 +426,6 @@ tr.is-pinned:hover td { background: rgba(240, 198, 116, 0.08); }
   .detail .body-render { padding: 0.85rem 0.9rem; font-size: 0.92rem; }
   .markdown-body pre { font-size: 0.78rem; }
 }
-@media (max-width: 480px) {
-  /* On very narrow phones, collapse the type column to a color dot only.
-     Index columns: expand, pin, id, type, name, [hidden cols], date, actions.
-     Type is column 4. Render the .pill text as 0px — keeps the colored
-     background as a 0.65rem dot anchored to the cell, so the user can
-     still distinguish memory types at a glance even with no label.
-     Journal table doesn't have a type column, so this is index-only. */
-  table.with-pin th:nth-child(4) { display: none; }
-  table.with-pin td:nth-child(4) {
-    width: 0.85rem; padding-left: 0.25rem; padding-right: 0.25rem;
-  }
-  table.with-pin td:nth-child(4) .pill[class*="type-"] {
-    font-size: 0; padding: 0; border: 0;
-    width: 0.65rem; height: 0.65rem;
-    border-radius: 50%; display: inline-block;
-  }
-  /* The tier pill shares the type cell; on phones drop it so the type dot
-     stays alone in the 0.85rem cell (tier still shows on the detail page). */
-  table.with-pin td:nth-child(4) .pill[class*="tier-"] { display: none; }
-}
-
 /* ─── Command palette (⌘K) ─── */
 .cmdk-trigger {
   background: var(--bg-3);
