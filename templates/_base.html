@@ -125,16 +125,16 @@ td.tags-cell, td.about-cell {
   overflow: hidden;
   max-height: 2rem;   /* ~one pill row (0.78rem font · 1.5 line + padding) */
 }
-/* +N chip: deliberately NOT a data pill. Lighter fill + brighter text + a
-   dashed border so it reads as a "show more" affordance, visually distinct
-   from the real tag/about pills (which are muted, solid-bordered). */
-.pill.tag-more { cursor: pointer; color: #c9d1d9;
-                 background: rgba(201, 209, 217, 0.12);
-                 border: 1px dashed rgba(201, 209, 217, 0.5);
-                 font-weight: 600; font-variant-numeric: tabular-nums;
+/* +N chip: deliberately NOT a data pill — a faded, pale-gray "show more" hint.
+   Near-transparent fill, soft dashed border, dimmed text so it recedes next to
+   the real tag/about pills instead of competing with them. */
+.pill.tag-more { cursor: pointer; color: #6e7681;
+                 background: rgba(110, 118, 129, 0.06);
+                 border: 1px dashed rgba(110, 118, 129, 0.35);
+                 font-weight: 500; font-variant-numeric: tabular-nums;
                  white-space: nowrap; }
-.pill.tag-more:hover { color: #fff; background: rgba(201, 209, 217, 0.2);
-                       border-color: #c9d1d9; }
+.pill.tag-more:hover { color: #adbac7; background: rgba(110, 118, 129, 0.14);
+                       border-color: rgba(110, 118, 129, 0.6); }
 
 /* file-category pills (files browser) — keys mirror files_store.FILE_CATEGORIES.
    Pale tint bg + saturated text so they read on the dark theme. */
@@ -231,8 +231,13 @@ form.filters input[type=search]:focus { background: var(--bg-2); }
    strand on its own line (the old failure mode, worst in semantic/hybrid where
    the mode toggle ate the row width). margin-left:auto right-aligns the pair
    whether on the main row or the wrapped line. */
-.filter-actions { display: inline-flex; gap: 0.45rem; align-items: center;
-                  flex-wrap: nowrap; margin-left: auto; }
+/* clear + new on their OWN dedicated line below the filters, always, right-
+   aligned. flex-basis:100% forces a fresh row so the pair can't strand next to
+   the mode toggle or wrap to a width-dependent spot. Deterministic at every
+   zoom: filters on top, [clear] [+ new] beneath, hard right. */
+.filter-actions { display: flex; flex: 1 0 100%; gap: 0.45rem;
+                  align-items: center; justify-content: flex-end;
+                  margin-left: 0; }
 .new-memory-btn { margin-left: 0; }
 
 /* trash page header: title left, 'empty trash' button right */
