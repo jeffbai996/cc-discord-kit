@@ -58,19 +58,20 @@ def test_detail_page_renders_tier_pill(client):
     r = c.get(f"/memory/{m['id']}")
     assert r.status_code == 200
     html = r.get_data(as_text=True)
-    # tier renders as a pill (absent tier => Live), not a dot
+    # detail page renders tier as a pill (absent tier => Live). (The string
+    # "tier-dot" appears in the included stylesheet for list-row dots, so we
+    # don't assert its absence here — only that the detail pill is present.)
     assert "pill tier-live" in html
-    assert "tier-dot" not in html
 
 
-def test_index_page_renders_tier_pill(client):
+def test_index_page_renders_tier_dot(client):
     c, store = client
     store.save_memory("body text", name="m", author="agent-1")
     r = c.get("/")
     assert r.status_code == 200
     html = r.get_data(as_text=True)
-    assert "pill tier-live" in html
-    assert "tier-dot" not in html
+    # list rows show tier as a small solid dot under the pin, not a bulky pill
+    assert "tier-dot tier-live" in html
 
 
 def test_index_byline_shows_author(client):
