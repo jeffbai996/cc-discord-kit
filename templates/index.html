@@ -53,10 +53,14 @@
   <noscript>
     <button class="btn-primary" type="submit">filter</button>
   </noscript>
-  <a class="btn btn-ghost" href="{{ url_for('index') }}" id="clear-link"
-     {% if not (q or type_filter or about_filter or bot_filter or show_all or mode != 'literal') %}hidden{% endif %}>clear</a>
-  <a class="btn btn-primary new-memory-btn" href="{{ url_for('memory_new') }}"
-     title="add a new memory (n)">+ new</a>
+  <!-- clear + new in one block so they stay together and wrap as a unit
+       (never +new spilling alone). margin-left:auto right-aligns them. -->
+  <div class="filter-actions">
+    <a class="btn btn-ghost" href="{{ url_for('index') }}" id="clear-link"
+       {% if not (q or type_filter or about_filter or bot_filter or show_all or mode != 'literal') %}hidden{% endif %}>clear</a>
+    <a class="btn btn-primary new-memory-btn" href="{{ url_for('memory_new') }}"
+       title="add a new memory (n)">+ new</a>
+  </div>
 </form>
 
 <div id="warn-banner" class="warn" {% if not semantic_warning %}hidden{% endif %}

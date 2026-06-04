@@ -125,10 +125,16 @@ td.tags-cell, td.about-cell {
   overflow: hidden;
   max-height: 2rem;   /* ~one pill row (0.78rem font · 1.5 line + padding) */
 }
-.pill.tag-more { cursor: pointer; color: var(--muted);
-                 background: var(--bg-3); border-color: var(--border-2);
-                 font-variant-numeric: tabular-nums; white-space: nowrap; }
-.pill.tag-more:hover { color: var(--fg); border-color: var(--accent); }
+/* +N chip: deliberately NOT a data pill. Lighter fill + brighter text + a
+   dashed border so it reads as a "show more" affordance, visually distinct
+   from the real tag/about pills (which are muted, solid-bordered). */
+.pill.tag-more { cursor: pointer; color: #c9d1d9;
+                 background: rgba(201, 209, 217, 0.12);
+                 border: 1px dashed rgba(201, 209, 217, 0.5);
+                 font-weight: 600; font-variant-numeric: tabular-nums;
+                 white-space: nowrap; }
+.pill.tag-more:hover { color: #fff; background: rgba(201, 209, 217, 0.2);
+                       border-color: #c9d1d9; }
 
 /* file-category pills (files browser) — keys mirror files_store.FILE_CATEGORIES.
    Pale tint bg + saturated text so they read on the dark theme. */
@@ -219,9 +225,15 @@ form.filters input[type=search]:focus { background: var(--bg-2); }
 .result-count { font-size: 0.82rem; margin: 0.85rem 0 0.6rem; }
 .result-count strong { color: var(--fg); font-variant-numeric: tabular-nums; }
 
-/* + new button — anchored to the right end of the filter row,
-   always visible (the empty-state CTA still exists as a backup). */
-.new-memory-btn { margin-left: auto; }
+/* clear + new live in one flex block (.filter-actions) so they always travel
+   together. As a SINGLE flex item, the pair either sits on the main filter row
+   (when there's room) or wraps to the next line as a unit — "+ new" can never
+   strand on its own line (the old failure mode, worst in semantic/hybrid where
+   the mode toggle ate the row width). margin-left:auto right-aligns the pair
+   whether on the main row or the wrapped line. */
+.filter-actions { display: inline-flex; gap: 0.45rem; align-items: center;
+                  flex-wrap: nowrap; margin-left: auto; }
+.new-memory-btn { margin-left: 0; }
 
 /* trash page header: title left, 'empty trash' button right */
 .trash-header { display: flex; align-items: baseline; justify-content: space-between;
@@ -1016,56 +1028,78 @@ document.addEventListener("click", function (ev) {
 // chevron) reveals the full list. Runs on load AND after the live-search
 // renderer rebuilds the table (it dispatches 'rows:rendered').
 (function () {
+  // Shared click handler for every +N chip (delegated, attached once below) —
+  // cheaper than binding a listener per chip on every re-render.
+  function onMoreClick(ev) {
+    const more = ev.target.closest(".tag-more");
+    if (!more) return;
+    ev.preventDefault();
+    const row = more.closest("tr");
+    const expandBtn = row && row.querySelector(".expand-btn");
+    if (expandBtn) expandBtn.click();
+  }
+
   function collapseTags(cell) {
-    // Reset any prior collapse so re-measuring is clean (re-render reuse).
+    // Skip cells that aren't rendered (the about/tags columns are display:none
+    // on mobile → offsetParent null). No layout reads, no work. This is the
+    // big win: on phones the whole pass is a no-op instead of measuring 100
+    // hidden cells per keystroke.
+    if (cell.offsetParent === null) return;
+
     const existing = cell.querySelector(".tag-more");
     if (existing) existing.remove();
     const pills = Array.prototype.slice.call(cell.querySelectorAll(".pill"));
-    pills.forEach(function (p) { p.style.display = ""; });
     if (pills.length <= 1) return;
 
-    // The cell is capped to one line via CSS (.tags-cell). Find the first
-    // pill that wraps to a second line (its offsetTop exceeds the first
-    // pill's), hide it and everything after, and show a +N chip.
-    const firstTop = pills[0].offsetTop;
+    // READ phase — gather every pill's offsetTop in one go BEFORE any style
+    // writes, so we don't thrash layout (read→write→read forces a reflow each
+    // time). Reset display first (also a write), then read all tops.
+    for (let i = 0; i < pills.length; i++) pills[i].style.display = "";
+    const tops = new Array(pills.length);
+    for (let i = 0; i < pills.length; i++) tops[i] = pills[i].offsetTop;
+
+    const firstTop = tops[0];
     let firstHidden = -1;
     for (let i = 1; i < pills.length; i++) {
-      if (pills[i].offsetTop > firstTop) { firstHidden = i; break; }
+      if (tops[i] > firstTop) { firstHidden = i; break; }
     }
-    if (firstHidden === -1) return; // all fit
+    if (firstHidden === -1) return; // all fit on one line
 
-    // We need room for the +N chip too, so back off one more pill if the
-    // chip itself would push to a second line. Cheap heuristic: hide from
-    // firstHidden on, then if the chip overflows, hide one earlier.
+    // WRITE phase.
     let cut = firstHidden;
-    function applyCut(c) {
-      pills.forEach(function (p, i) { p.style.display = i < c ? "" : "none"; });
+    for (let i = 0; i < pills.length; i++) {
+      pills[i].style.display = i < cut ? "" : "none";
     }
-    applyCut(cut);
     const more = document.createElement("span");
     more.className = "pill tag-more";
     more.textContent = "+" + (pills.length - cut);
     more.title = "show all";
     cell.appendChild(more);
-    // If the chip wrapped, drop one more visible pill (once is enough in
-    // practice for these short pills).
+    // One corrective read: if the chip itself wrapped to line 2, drop one more
+    // visible pill. Single read, bounded — not a loop.
     if (more.offsetTop > firstTop && cut > 1) {
       cut -= 1;
-      applyCut(cut);
+      for (let i = 0; i < pills.length; i++) {
+        pills[i].style.display = i < cut ? "" : "none";
+      }
       more.textContent = "+" + (pills.length - cut);
     }
-    // Clicking +N opens the row's expand panel (full tags live there).
-    more.addEventListener("click", function (ev) {
-      ev.preventDefault();
-      const row = cell.closest("tr");
-      const expandBtn = row && row.querySelector(".expand-btn");
-      if (expandBtn) expandBtn.click();
+  }
+
+  let scheduled = false;
+  function run() {
+    // Coalesce bursts (live-search fires rows:rendered on every keystroke) into
+    // one pass per animation frame.
+    if (scheduled) return;
+    scheduled = true;
+    requestAnimationFrame(function () {
+      scheduled = false;
+      document.querySelectorAll(".tags-cell, .about-cell").forEach(collapseTags);
     });
   }
 
-  function run() {
-    document.querySelectorAll(".tags-cell, .about-cell").forEach(collapseTags);
-  }
+  // Delegate +N clicks once, at the document level.
+  document.addEventListener("click", onMoreClick);
 
   document.addEventListener("DOMContentLoaded", run);
   // Live-search renderer fires this after swapping the table body.
