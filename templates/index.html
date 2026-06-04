@@ -83,7 +83,7 @@
       <th class="expand-cell"></th>
       <th class="pin-cell"></th>
       <th style="width: 4rem;">id</th>
-      <th class="small" style="width: 8rem;">type</th>
+      <th class="type-col" style="width: 8rem;">type</th>
       <th>name</th>
       <th class="small">about</th>
       <th class="small">tags</th>
@@ -127,19 +127,18 @@
           {% endif %}
         {% endif %}
       </td>
-      <td class="small">
+      <td class="type-col">
         <span class="pill type-{{ m.type or 'default' }}">{{ m.type | type_label }}</span>
       </td>
       <td>
         <a class="entry" href="{{ url_for('memory_detail', memory_id=m.id) }}">
           {{ (m.name or m.text[:80]) | highlight(q) }}
         </a>
-        <span class="pill type-{{ m.type or 'default' }} type-inline">{{ m.type | type_label }}</span>
         {% if m.bot %}
           <span class="pill" style="background: rgba(207, 34, 46, 0.15); color: #ff7b72; border-color: rgba(207, 34, 46, 0.3);">bot:{{ m.bot|join(',') }}</span>
         {% endif %}
       </td>
-      <td class="small">
+      <td class="small about-cell">
         {% for a in m.about or [] %}<a class="pill" href="{{ url_for('index', about=a) }}">{{ a }}</a>{% endfor %}
       </td>
       <td class="small tags-cell">
@@ -269,7 +268,7 @@
     let html =
       '<table class="with-pin"><thead><tr>' +
       '<th class="expand-cell"></th><th class="pin-cell"></th>' +
-      '<th style="width: 4rem;">id</th><th class="small" style="width: 8rem;">type</th>' +
+      '<th style="width: 4rem;">id</th><th class="type-col" style="width: 8rem;">type</th>' +
       '<th>name</th><th class="small">about</th><th class="small">tags</th>' +
       '<th class="small" style="width: 6rem; text-align: right;">date</th>' +
       '<th class="row-actions"></th></tr></thead><tbody>';
@@ -329,10 +328,9 @@
         '<button class="pin-btn ' + pinBtnClass + '" type="submit" title="' + pinTitle + '" aria-label="pin">' +
         '<svg class="pin-icon"><use href="#i-pin"/></svg></button></form></div></td>' +
         '<td class="id-cell"><a class="entry" href="' + detailUrl + '">#<strong>' + m.id + "</strong></a>" + scoreHtml + "</td>" +
-        '<td class="small"><span class="pill type-' + escHtml(typeClass) + '">' + escHtml(typeLabel) + "</span></td>" +
-        '<td><a class="entry" href="' + detailUrl + '">' + highlightHtml(nameDisplay, q) + "</a>" + botPill +
-        ' <span class="pill type-' + escHtml(typeClass) + ' type-inline">' + escHtml(typeLabel) + "</span></td>" +
-        '<td class="small">' + aboutsHtml + "</td>" +
+        '<td class="type-col"><span class="pill type-' + escHtml(typeClass) + '">' + escHtml(typeLabel) + "</span></td>" +
+        '<td><a class="entry" href="' + detailUrl + '">' + highlightHtml(nameDisplay, q) + "</a>" + botPill + "</td>" +
+        '<td class="small about-cell">' + aboutsHtml + "</td>" +
         '<td class="small tags-cell">' + tagsHtml + "</td>" +
         '<td class="small date">' + escHtml(dateStr) + "</td>" +
         '<td class="row-actions"><form method="post" action="' + delAction +

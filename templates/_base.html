@@ -91,12 +91,6 @@ a.pill:hover { color: var(--fg); border-color: var(--border-2);
                background: var(--bg-3); }
 
 /* type pills — semantic colors */
-/* Inline type pill shown next to the name ON MOBILE ONLY. The type column is
-   .small (hidden ≤700px) so the table doesn't overflow on phones; this keeps
-   the type pill visible where there's room — beside the name. Hidden on
-   desktop (the dedicated type column shows it there). */
-.type-inline { display: none; margin-left: 0.4rem; vertical-align: middle; }
-@media (max-width: 700px) { .type-inline { display: inline-block; } }
 .pill.type-feedback { background: var(--t-feedback-bg); color: var(--t-feedback-fg); border-color: var(--t-feedback-bd); }
 .pill.type-project  { background: var(--t-project-bg);  color: var(--t-project-fg);  border-color: var(--t-project-bd); }
 .pill.type-user     { background: var(--t-user-bg);     color: var(--t-user-fg);     border-color: var(--t-user-bd); }
@@ -118,18 +112,22 @@ a.pill:hover { color: var(--fg); border-color: var(--border-2);
 .tier-dot.tier-cache   { background: #d29922; }
 .tier-dot.tier-storage { background: #f85149; }
 
-/* tags cell: cap to a single line. JS hides pills that wrap and appends a
-   +N chip (see _base.html tag-overflow script). overflow:hidden keeps the
-   row height fixed even before JS runs / if JS is off. */
-td.tags-cell {
+/* about + tags cells: cap to a single line of pills. The pills wrap NORMALLY
+   (this is load-bearing — the JS detects overflow by finding pills whose
+   offsetTop dropped to a 2nd line, so they MUST be allowed to wrap). JS then
+   hides the wrapped ones and appends a clickable "+N" chip. The max-height +
+   overflow:hidden below is only a pre-JS / no-JS fallback: it clips to ~one
+   pill row so a heavily-tagged memory doesn't flash a tall row before the JS
+   runs. Once JS runs the cell is naturally one line and max-height is moot.
+   (Earlier bug: white-space:nowrap stopped pills wrapping, so the JS found
+   nothing to collapse and the cell just hard-clipped mid-word.) */
+td.tags-cell, td.about-cell {
   overflow: hidden;
-  max-width: 0;        /* let the table allocate; pills clip on overflow */
-  white-space: nowrap; /* pre-JS: clip to one line, no tall rows */
+  max-height: 2rem;   /* ~one pill row (0.78rem font · 1.5 line + padding) */
 }
-td.tags-cell .pill { white-space: nowrap; }
 .pill.tag-more { cursor: pointer; color: var(--muted);
                  background: var(--bg-3); border-color: var(--border-2);
-                 font-variant-numeric: tabular-nums; }
+                 font-variant-numeric: tabular-nums; white-space: nowrap; }
 .pill.tag-more:hover { color: var(--fg); border-color: var(--accent); }
 
 /* file-category pills (files browser) — keys mirror files_store.FILE_CATEGORIES.
@@ -201,7 +199,14 @@ form.filters input:focus, form.filters select:focus,
   outline: none; border-color: var(--accent);
 }
 form.filters input[type=search] {
-  min-width: 280px; flex: 1 1 320px; max-width: 520px;
+  /* Don't GROW (flex-grow:0). With grow:1 the search box expanded to fill all
+     free space on the filter row, leaving zero room after the last control —
+     so "+ new" had nowhere to sit and wrapped to its own line (worst in
+     semantic/hybrid mode, where the mode toggle adds ~14rem of controls).
+     grow:0 keeps search at a sensible basis; leftover row space sits empty at
+     the right and "+ new" stays inline. Still shrinks so it yields on narrow
+     viewports instead of forcing a wrap. */
+  flex: 0 1 22rem; min-width: 8rem; max-width: 520px;
   padding-left: 0.85rem;
   background: var(--bg-3);  /* recess it slightly from filter chrome */
 }
@@ -387,6 +392,17 @@ tr.is-pinned:hover td { background: rgba(240, 198, 116, 0.08); }
   body { font-size: 14px; }
   .wrap { padding: 0.85rem 0.9rem 3rem; }
   th.small, td.small { display: none; }
+  /* Compact the type column on phones. The full 8rem column + the other fixed
+     columns overflowed the viewport (about/tags/date hide, but type stayed
+     visible at 8rem, crushing the name and tipping the table into a horizontal
+     scrollbar). Keep type as an aligned column — just skinny — and shrink the
+     pill so the longest label ("reference") still fits. Desktop keeps 8rem. */
+  th.type-col, td.type-col { width: 3.75rem !important; padding-left: 0.3rem; padding-right: 0.3rem; }
+  td.type-col .pill {
+    font-size: 0.6rem; padding: 0.1rem 0.35rem; letter-spacing: 0;
+    max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; display: inline-block; vertical-align: middle;
+  }
   thead th { top: 56px; }
   header.site { padding-top: 0.4rem; padding-bottom: 0.5rem;
                 margin-bottom: 1rem; gap: 0.6rem; }
@@ -1029,7 +1045,7 @@ document.addEventListener("click", function (ev) {
     const more = document.createElement("span");
     more.className = "pill tag-more";
     more.textContent = "+" + (pills.length - cut);
-    more.title = "show all tags";
+    more.title = "show all";
     cell.appendChild(more);
     // If the chip wrapped, drop one more visible pill (once is enough in
     // practice for these short pills).
@@ -1048,7 +1064,7 @@ document.addEventListener("click", function (ev) {
   }
 
   function run() {
-    document.querySelectorAll(".tags-cell").forEach(collapseTags);
+    document.querySelectorAll(".tags-cell, .about-cell").forEach(collapseTags);
   }
 
   document.addEventListener("DOMContentLoaded", run);
