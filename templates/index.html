@@ -66,8 +66,8 @@
 </div>
 <p id="semantic-hint" class="muted" style="font-size: 0.8rem; margin-bottom: 0.4rem;"
    {% if mode == 'literal' or not entries %}hidden{% endif %}>
-  {% if mode == 'semantic' %}Hits ranked by semantic similarity. Treat close scores as directional.
-  {% elif mode == 'hybrid' %}Semantic ranking with literal-match boost. <strong>VK</strong> = both retrievers fired, <strong>V</strong> = semantic only, <strong>K</strong> = keyword only.
+  {% if mode == 'semantic' %}Ranked by similarity. Treat close scores as directional.
+  {% elif mode == 'hybrid' %}Hybrid ranking. <strong>VK</strong> = both, <strong>V</strong> = vector, <strong>K</strong> = keyword.
   {% endif %}
 </p>
 
@@ -384,8 +384,8 @@
       } else {
         semHint.removeAttribute("hidden");
         semHint.innerHTML = (mode === "semantic")
-          ? "Hits ranked by semantic similarity. Treat close scores as directional."
-          : "Semantic ranking with literal-match boost. <strong>VK</strong> = both retrievers fired, <strong>V</strong> = semantic only, <strong>K</strong> = keyword only.";
+          ? "Ranked by similarity. Treat close scores as directional."
+          : "Hybrid ranking. <strong>VK</strong> = both, <strong>V</strong> = vector, <strong>K</strong> = keyword.";
       }
     }
 
