@@ -81,15 +81,15 @@
 <table class="with-pin">
   <thead>
     <tr>
-      <th class="expand-cell"></th>
-      <th class="pin-cell"></th>
-      <th style="width: 4rem;">id</th>
-      <th class="type-col" style="width: 8rem;">type</th>
+      <th class="expand-cell" style="width: 1.8rem;"></th>
+      <th class="pin-cell" style="width: 2.6rem;"></th>
+      <th style="width: 3.5rem;">id</th>
+      <th class="type-col" style="width: 7rem;">type</th>
       <th>name</th>
-      <th class="small">about</th>
-      <th class="small">tags</th>
+      <th class="small" style="width: 12rem;">about</th>
+      <th class="small" style="width: 12rem;">tags</th>
       <th class="small" style="width: 6rem; text-align: right;">date</th>
-      <th class="row-actions"></th>
+      <th class="row-actions" style="width: 2.4rem;"></th>
     </tr>
   </thead>
   <tbody>
@@ -270,11 +270,11 @@
 
     let html =
       '<table class="with-pin"><thead><tr>' +
-      '<th class="expand-cell"></th><th class="pin-cell"></th>' +
-      '<th style="width: 4rem;">id</th><th class="type-col" style="width: 8rem;">type</th>' +
-      '<th>name</th><th class="small">about</th><th class="small">tags</th>' +
+      '<th class="expand-cell" style="width: 1.8rem;"></th><th class="pin-cell" style="width: 2.6rem;"></th>' +
+      '<th style="width: 3.5rem;">id</th><th class="type-col" style="width: 7rem;">type</th>' +
+      '<th>name</th><th class="small" style="width: 12rem;">about</th><th class="small" style="width: 12rem;">tags</th>' +
       '<th class="small" style="width: 6rem; text-align: right;">date</th>' +
-      '<th class="row-actions"></th></tr></thead><tbody>';
+      '<th class="row-actions" style="width: 2.4rem;"></th></tr></thead><tbody>';
 
     for (const m of entries) {
       const detailUrl = detailBase + m.id;

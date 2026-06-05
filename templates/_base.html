@@ -238,6 +238,13 @@ button:hover, .btn:hover { background: #1f2937; }
 
 /* tables */
 table { border-collapse: collapse; width: 100%; }
+/* The memories table uses fixed layout on desktop so columns honor set widths
+   instead of expanding to content (the about/tags columns ballooned and pushed
+   the table wider than the wrap, breaking it out of the page). On mobile this
+   table becomes display:block cards, so table-layout is moot there. */
+table.with-pin { table-layout: fixed; }
+table.with-pin td.name-cell { overflow: hidden; }
+table.with-pin td.name-cell a.entry { overflow-wrap: anywhere; }
 thead th { position: sticky; top: 60px; background: var(--bg); z-index: 5;
            border-bottom: 1px solid var(--border-2); }
 th, td { text-align: left; padding: 0.6rem 0.7rem;
