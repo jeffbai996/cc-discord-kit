@@ -140,10 +140,12 @@
         {% endif %}
       </td>
       <td class="small about-cell">
-        {% for a in m.about or [] %}<a class="pill" href="{{ url_for('index', about=a) }}">{{ a }}</a>{% endfor %}
+        {% for a in (m.about or [])[:3] %}<a class="pill" href="{{ url_for('index', about=a) }}">{{ a }}</a>{% endfor %}
+        {% if (m.about or [])|length > 3 %}<span class="pill tag-more" title="show all">+{{ (m.about|length) - 3 }}</span>{% endif %}
       </td>
       <td class="small tags-cell">
-        {% for t in m.tags or [] %}<a class="pill" href="{{ url_for('index', q=t) }}">{{ t }}</a>{% endfor %}
+        {% for t in (m.tags or [])[:3] %}<a class="pill" href="{{ url_for('index', q=t) }}">{{ t }}</a>{% endfor %}
+        {% if (m.tags or [])|length > 3 %}<span class="pill tag-more" title="show all">+{{ (m.tags|length) - 3 }}</span>{% endif %}
       </td>
       <td class="small date">{{ (m.ts or '')[:10] }}</td>
       <td class="row-actions">
@@ -292,12 +294,21 @@
           scoreColor(score) + ';">' + Math.round(score) + "%</div>" + badgeFor(matched);
       }
 
-      const aboutsHtml = (m.about || []).map(a =>
-        '<a class="pill" href="?about=' + encodeURIComponent(a) + '">' + escHtml(a) + "</a>"
-      ).join("");
-      const tagsHtml = (m.tags || []).map(t =>
-        '<a class="pill" href="?q=' + encodeURIComponent(t) + '">' + escHtml(t) + "</a>"
-      ).join("");
+      // Cap pills at 3 + a faded "+K" chip (mirrors the server-side template
+      // cap). No layout measurement — deterministic one line.
+      const PILL_CAP = 3;
+      function pillsHtml(items, param) {
+        const arr = items || [];
+        const shown = arr.slice(0, PILL_CAP).map(function (v) {
+          return '<a class="pill" href="?' + param + "=" + encodeURIComponent(v) +
+                 '">' + escHtml(v) + "</a>";
+        }).join("");
+        const extra = arr.length - PILL_CAP;
+        return shown + (extra > 0
+          ? '<span class="pill tag-more" title="show all">+' + extra + "</span>" : "");
+      }
+      const aboutsHtml = pillsHtml(m.about, "about");
+      const tagsHtml = pillsHtml(m.tags, "q");
 
       const botPill = (m.bot && m.bot.length)
         ? ' <span class="pill" style="background: rgba(207, 34, 46, 0.15); color: #ff7b72; border-color: rgba(207, 34, 46, 0.3);">bot:' + escHtml(m.bot.join(",")) + "</span>"
@@ -352,8 +363,7 @@
     }
     html += "</tbody></table>";
     resultsContainer.innerHTML = html;
-    // Tell the shared tag-overflow collapser to re-run on the new rows.
-    document.dispatchEvent(new CustomEvent("rows:rendered"));
+    // Pills are capped server-side / in pillsHtml — no post-render layout pass.
   }
 
   function updateChrome(data) {

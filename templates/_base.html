@@ -112,19 +112,12 @@ a.pill:hover { color: var(--fg); border-color: var(--border-2);
 .tier-dot.tier-cache   { background: #d29922; }
 .tier-dot.tier-storage { background: #f85149; }
 
-/* about + tags cells: cap to a single line of pills. The pills wrap NORMALLY
-   (this is load-bearing — the JS detects overflow by finding pills whose
-   offsetTop dropped to a 2nd line, so they MUST be allowed to wrap). JS then
-   hides the wrapped ones and appends a clickable "+N" chip. The max-height +
-   overflow:hidden below is only a pre-JS / no-JS fallback: it clips to ~one
-   pill row so a heavily-tagged memory doesn't flash a tall row before the JS
-   runs. Once JS runs the cell is naturally one line and max-height is moot.
-   (Earlier bug: white-space:nowrap stopped pills wrapping, so the JS found
-   nothing to collapse and the cell just hard-clipped mid-word.) */
-td.tags-cell, td.about-cell {
-  overflow: hidden;
-  max-height: 2rem;   /* ~one pill row (0.78rem font · 1.5 line + padding) */
-}
+/* about + tags cells: pills are capped to 3 + a "+K" chip SERVER-SIDE (in the
+   template + JS renderer), so the cell holds at most 4 chips. nowrap +
+   overflow:hidden keep them on one line and clip gracefully in a very narrow
+   column — no JS layout measurement, no reflow, no race with live-search. */
+td.tags-cell, td.about-cell { overflow: hidden; white-space: nowrap; }
+td.tags-cell .pill, td.about-cell .pill { white-space: nowrap; }
 /* +N chip: deliberately NOT a data pill — a faded, pale-gray "show more" hint.
    Near-transparent fill, soft dashed border, dimmed text so it recedes next to
    the real tag/about pills instead of competing with them. */
@@ -1017,93 +1010,19 @@ document.addEventListener("click", function (ev) {
   });
 })();
 
-// Tag-overflow collapse. Memories with many tags blew the row height up.
-// We cap the tags cell to a single line: measure which pills fit, hide the
-// rest, and append a muted "+N" chip. Tapping +N (or the row's expand
-// chevron) reveals the full list. Runs on load AND after the live-search
-// renderer rebuilds the table (it dispatches 'rows:rendered').
+// +N pill chip → expand the row. Pills are capped SERVER-SIDE (first 3 + a
+// "+K" chip, in the template / JS renderer) — no client-side layout
+// measurement, so this is just a click handler that opens the row's expand
+// panel where the full tag/about list lives. (Replaced the old offsetTop-
+// measuring collapser, which fought table layout and raced the live re-render.)
 (function () {
-  // Shared click handler for every +N chip (delegated, attached once below) —
-  // cheaper than binding a listener per chip on every re-render.
-  function onMoreClick(ev) {
-    const more = ev.target.closest(".tag-more");
+  document.addEventListener("click", function (ev) {
+    const more = ev.target.closest && ev.target.closest(".tag-more");
     if (!more) return;
     ev.preventDefault();
     const row = more.closest("tr");
     const expandBtn = row && row.querySelector(".expand-btn");
     if (expandBtn) expandBtn.click();
-  }
-
-  function collapseTags(cell) {
-    // Skip cells that aren't rendered (the about/tags columns are display:none
-    // on mobile → offsetParent null). No layout reads, no work. This is the
-    // big win: on phones the whole pass is a no-op instead of measuring 100
-    // hidden cells per keystroke.
-    if (cell.offsetParent === null) return;
-
-    const existing = cell.querySelector(".tag-more");
-    if (existing) existing.remove();
-    const pills = Array.prototype.slice.call(cell.querySelectorAll(".pill"));
-    if (pills.length <= 1) return;
-
-    // READ phase — gather every pill's offsetTop in one go BEFORE any style
-    // writes, so we don't thrash layout (read→write→read forces a reflow each
-    // time). Reset display first (also a write), then read all tops.
-    for (let i = 0; i < pills.length; i++) pills[i].style.display = "";
-    const tops = new Array(pills.length);
-    for (let i = 0; i < pills.length; i++) tops[i] = pills[i].offsetTop;
-
-    const firstTop = tops[0];
-    let firstHidden = -1;
-    for (let i = 1; i < pills.length; i++) {
-      if (tops[i] > firstTop) { firstHidden = i; break; }
-    }
-    if (firstHidden === -1) return; // all fit on one line
-
-    // WRITE phase.
-    let cut = firstHidden;
-    for (let i = 0; i < pills.length; i++) {
-      pills[i].style.display = i < cut ? "" : "none";
-    }
-    const more = document.createElement("span");
-    more.className = "pill tag-more";
-    more.textContent = "+" + (pills.length - cut);
-    more.title = "show all";
-    cell.appendChild(more);
-    // One corrective read: if the chip itself wrapped to line 2, drop one more
-    // visible pill. Single read, bounded — not a loop.
-    if (more.offsetTop > firstTop && cut > 1) {
-      cut -= 1;
-      for (let i = 0; i < pills.length; i++) {
-        pills[i].style.display = i < cut ? "" : "none";
-      }
-      more.textContent = "+" + (pills.length - cut);
-    }
-  }
-
-  let scheduled = false;
-  function run() {
-    // Coalesce bursts (live-search fires rows:rendered on every keystroke) into
-    // one pass per animation frame.
-    if (scheduled) return;
-    scheduled = true;
-    requestAnimationFrame(function () {
-      scheduled = false;
-      document.querySelectorAll(".tags-cell, .about-cell").forEach(collapseTags);
-    });
-  }
-
-  // Delegate +N clicks once, at the document level.
-  document.addEventListener("click", onMoreClick);
-
-  document.addEventListener("DOMContentLoaded", run);
-  // Live-search renderer fires this after swapping the table body.
-  document.addEventListener("rows:rendered", run);
-  // Re-collapse on resize (column widths change). Debounced.
-  let rT = null;
-  window.addEventListener("resize", function () {
-    if (rT) clearTimeout(rT);
-    rT = setTimeout(run, 150);
   });
 })();
 </script>
