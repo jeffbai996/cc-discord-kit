@@ -53,14 +53,11 @@
   <noscript>
     <button class="btn-primary" type="submit">filter</button>
   </noscript>
-  <!-- clear + new in one block so they stay together and wrap as a unit
-       (never +new spilling alone). margin-left:auto right-aligns them. -->
-  <div class="filter-actions">
-    <a class="btn btn-ghost" href="{{ url_for('index') }}" id="clear-link"
-       {% if not (q or type_filter or about_filter or bot_filter or show_all or mode != 'literal') %}hidden{% endif %}>clear</a>
-    <a class="btn btn-primary new-memory-btn" href="{{ url_for('memory_new') }}"
-       title="add a new memory (n)">+ new</a>
-  </div>
+  <!-- "+ new" lives only in the header dropdown now (on-page blue button
+       removed). clear is the lone filter action, right-aligned, shown when
+       a filter is active. -->
+  <a class="btn btn-ghost filter-clear" href="{{ url_for('index') }}" id="clear-link"
+     {% if not (q or type_filter or about_filter or bot_filter or show_all or mode != 'literal') %}hidden{% endif %}>clear</a>
 </form>
 
 <div id="warn-banner" class="warn" {% if not semantic_warning %}hidden{% endif %}
@@ -493,8 +490,9 @@
         qInput.blur();
       }
     } else if (e.key === "n" && !inField && !e.metaKey && !e.ctrlKey) {
-      const newBtn = document.querySelector(".new-memory-btn");
-      if (newBtn) { e.preventDefault(); window.location.href = newBtn.href; }
+      // On-page + new button removed; `n` still jumps to the new-memory form.
+      e.preventDefault();
+      window.location.href = "{{ url_for('memory_new') }}";
     }
   });
 })();

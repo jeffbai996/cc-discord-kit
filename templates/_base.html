@@ -225,20 +225,10 @@ form.filters input[type=search]:focus { background: var(--bg-2); }
 .result-count { font-size: 0.82rem; margin: 0.85rem 0 0.6rem; }
 .result-count strong { color: var(--fg); font-variant-numeric: tabular-nums; }
 
-/* clear + new live in one flex block (.filter-actions) so they always travel
-   together. As a SINGLE flex item, the pair either sits on the main filter row
-   (when there's room) or wraps to the next line as a unit — "+ new" can never
-   strand on its own line (the old failure mode, worst in semantic/hybrid where
-   the mode toggle ate the row width). margin-left:auto right-aligns the pair
-   whether on the main row or the wrapped line. */
-/* clear + new on their OWN dedicated line below the filters, always, right-
-   aligned. flex-basis:100% forces a fresh row so the pair can't strand next to
-   the mode toggle or wrap to a width-dependent spot. Deterministic at every
-   zoom: filters on top, [clear] [+ new] beneath, hard right. */
-.filter-actions { display: flex; flex: 1 0 100%; gap: 0.45rem;
-                  align-items: center; justify-content: flex-end;
-                  margin-left: 0; }
-.new-memory-btn { margin-left: 0; }
+/* The on-page "+ new" button was removed (create via the header dropdown).
+   clear is the lone filter action — it only appears when a filter is active,
+   so it just flows to the right of the filter row. */
+.filter-clear { margin-left: auto; }
 
 /* trash page header: title left, 'empty trash' button right */
 .trash-header { display: flex; align-items: baseline; justify-content: space-between;
