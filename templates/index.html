@@ -131,7 +131,7 @@
       <td class="type-col">
         <span class="pill type-{{ m.type or 'default' }}">{{ m.type | type_label }}</span>
       </td>
-      <td>
+      <td class="name-cell">
         <a class="entry" href="{{ url_for('memory_detail', memory_id=m.id) }}">
           {{ (m.name or m.text[:80]) | highlight(q) }}
         </a>
@@ -341,7 +341,7 @@
         '<svg class="pin-icon"><use href="#i-pin"/></svg></button></form></div></td>' +
         '<td class="id-cell"><a class="entry" href="' + detailUrl + '">#<strong>' + m.id + "</strong></a>" + scoreHtml + "</td>" +
         '<td class="type-col"><span class="pill type-' + escHtml(typeClass) + '">' + escHtml(typeLabel) + "</span></td>" +
-        '<td><a class="entry" href="' + detailUrl + '">' + highlightHtml(nameDisplay, q) + "</a>" + botPill + "</td>" +
+        '<td class="name-cell"><a class="entry" href="' + detailUrl + '">' + highlightHtml(nameDisplay, q) + "</a>" + botPill + "</td>" +
         '<td class="small about-cell">' + aboutsHtml + "</td>" +
         '<td class="small tags-cell">' + tagsHtml + "</td>" +
         '<td class="small date">' + escHtml(dateStr) + "</td>" +

@@ -441,6 +441,50 @@ tr.is-pinned:hover td { background: rgba(240, 198, 116, 0.08); }
   /* detail body: respect viewport */
   .detail .body-render { padding: 0.85rem 0.9rem; font-size: 0.92rem; }
   .markdown-body pre { font-size: 0.78rem; }
+
+  /* ─── Memories list → CARD layout on phones ───────────────────────────────
+     A desktop table crammed onto a phone always overflowed horizontally (the
+     name column alone forced ~244px). Below 700px we relayout the SAME table
+     (one DOM — the live-search renderer keeps working) as a stack of cards.
+     Each row becomes a block card; cells become inline-flex chips that wrap;
+     order is controlled with flexbox `order`. No grid areas (those overlapped),
+     no fixed widths (those overflowed). */
+  table.with-pin,
+  table.with-pin tbody { display: block; width: 100%; }
+  table.with-pin thead { display: none; }
+  table.with-pin tr.entry-row {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.5rem;
+    background: var(--bg-2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 0.7rem 0.8rem; margin-bottom: 0.55rem;
+  }
+  table.with-pin tr.entry-row:hover td { background: transparent; }
+  table.with-pin tr.entry-row > td {
+    display: inline-flex; align-items: center; border: 0; padding: 0;
+    width: auto; max-width: 100%;
+  }
+  table.with-pin tr.entry-row > td.expand-cell { display: none !important; }
+  table.with-pin .id-cell { order: 0; width: auto !important; padding: 0 !important; }
+  table.with-pin .id-cell a.entry { font-size: 0.95rem; }
+  table.with-pin .pin-cell { order: 1; width: auto !important; padding: 0 !important; }
+  table.with-pin .pin-cell .pin-wrap { gap: 0.45rem; }
+  table.with-pin .tier-dot { width: 9px; height: 9px; }
+  table.with-pin .type-col { order: 2; width: auto !important; padding: 0 !important; }
+  table.with-pin .type-col .pill { font-size: 0.7rem; padding: 0.12rem 0.5rem; max-width: none; }
+  table.with-pin .row-actions { order: 3; margin-left: auto; width: auto; padding: 0 !important; }
+  table.with-pin .row-delete-btn { opacity: 0.6; }
+  table.with-pin tr.entry-row > td.name-cell { order: 4; flex: 1 0 100%; display: block; }
+  table.with-pin td.name-cell a.entry {
+    font-size: 0.95rem; font-weight: 600; white-space: normal; line-height: 1.35;
+  }
+  table.with-pin td.about-cell, table.with-pin td.date { display: none !important; }
+  table.with-pin td.tags-cell {
+    order: 5; flex: 1 0 100%; display: flex; flex-wrap: wrap; gap: 0.25rem;
+    white-space: normal; overflow: visible;
+  }
+  table.with-pin tr.expand-row { display: block; border: 0; background: transparent;
+                                 margin: -0.2rem 0 0.55rem; }
+  table.with-pin tr.expand-row[hidden] { display: none; }
+  table.with-pin tr.expand-row > td { display: block; padding: 0 !important; border: 0 !important; }
 }
 /* ─── Command palette (⌘K) ─── */
 .cmdk-trigger {
