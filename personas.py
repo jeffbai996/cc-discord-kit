@@ -87,7 +87,11 @@ def _load_config() -> tuple[dict[str, list[tuple[str, str, Mode]]], str]:
 
     git_repo = os.path.expanduser(str(data.get("git_repo", "")))
     bots: dict[str, list[tuple[str, str, Mode]]] = {}
-    for name, slots in (data.get("agents") or {}).items():
+    for name, entry in (data.get("agents") or {}).items():
+        # An agent may be written either as a bare list of slots (the simple
+        # form) or as a mapping with a `personas:` sub-key plus fleet-tooling
+        # fields (the richer form bots_doctor/bot_config read). Accept both.
+        slots = entry.get("personas") if isinstance(entry, dict) else entry
         slot_tuples: list[tuple[str, str, Mode]] = []
         for s in slots or []:
             slot = str(s["slot"])
