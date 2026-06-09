@@ -71,6 +71,8 @@ import store  # noqa: E402
 import history  # noqa: E402
 import personas  # noqa: E402
 import files_store  # noqa: E402
+import facts  # noqa: E402
+import capabilities  # noqa: E402
 
 
 # ─────────────────────────── display helpers ───────────────────────────
@@ -741,6 +743,135 @@ def cmd_files(args: argparse.Namespace) -> int:
     return 2
 
 
+def cmd_fact(args) -> int:
+    """Reusable-string fact store: look up volatile literals instead of
+    regenerating (and fabricating) them. Mirrors cmd_files in shape."""
+    sub = args.sub
+    if sub == "list":
+        rows = facts.list_facts()
+        if not rows:
+            print("(no facts)")
+            return 0
+        for r in rows:
+            note = f"  # {r['note']}" if r.get("note") else ""
+            print(f"{_pad_disp(r['key'], 24)} {r.get('value', '')}{note}")
+        return 0
+    if sub == "get":
+        r = facts.get_fact(args.key)
+        if not r:
+            print(f"fact {args.key!r} not found", file=sys.stderr)
+            return 1
+        # Bare value to stdout so it's pipe-friendly; metadata to stderr.
+        print(r.get("value", ""))
+        meta = []
+        if r.get("note"):
+            meta.append(f"note: {r['note']}")
+        if r.get("updated_by"):
+            meta.append(f"by: {r['updated_by']}")
+        if r.get("updated_ts"):
+            meta.append(f"updated: {r['updated_ts']}")
+        if meta:
+            print("  (" + "; ".join(meta) + ")", file=sys.stderr)
+        return 0
+    if sub == "set":
+        try:
+            rec = facts.set_fact(
+                args.key, args.value,
+                note=args.note or "",
+                by=_detect_calling_bot() or "",
+            )
+        except ValueError as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 2
+        print(f"Set {rec['key']} = {rec['value']}")
+        return 0
+    if sub == "delete":
+        if facts.delete_fact(args.key):
+            print(f"Deleted {args.key}")
+            return 0
+        print(f"fact {args.key!r} not found", file=sys.stderr)
+        return 1
+    if sub == "search":
+        rows = facts.search_facts(args.term)
+        if not rows:
+            print("(no matches)")
+            return 0
+        for r in rows:
+            note = f"  # {r['note']}" if r.get("note") else ""
+            print(f"{_pad_disp(r['key'], 24)} {r.get('value', '')}{note}")
+        return 0
+    print(f"unknown fact subcommand: {sub}", file=sys.stderr)
+    return 2
+
+
+def _print_capability_report(rec: dict) -> None:
+    print(f"agent:    {rec.get('bot')}")
+    print(f"machine:  {rec.get('machine')}")
+    print(f"config:   {rec.get('config_dir')}")
+    if rec.get("reported_ts"):
+        print(f"reported: {rec['reported_ts']}")
+    feats = rec.get("detected_features") or []
+    print(f"features: {', '.join(feats) if feats else '(none detected)'}")
+    hooks = rec.get("hooks") or {}
+    if hooks:
+        print("hooks:")
+        for event in sorted(hooks):
+            print(f"  {event}: {', '.join(hooks[event])}")
+    else:
+        print("hooks:    (none)")
+
+
+def cmd_capabilities(args: argparse.Namespace) -> int:
+    sub = args.sub
+    if sub == "report":
+        rec = capabilities.record_self()
+        print(f"Recorded capabilities for '{rec['bot']}':")
+        _print_capability_report(rec)
+        return 0
+    if sub == "show":
+        matrix = capabilities.load_matrix()
+        if not matrix:
+            print("(no capabilities recorded yet — run `capabilities report` "
+                  "on each agent)")
+            return 0
+        target = getattr(args, "bot", None)
+        if target:
+            rec = matrix.get(target)
+            if not rec:
+                print(f"agent '{target}' has never reported", file=sys.stderr)
+                return 1
+            _print_capability_report(rec)
+            return 0
+        for name in sorted(matrix):
+            rec = matrix[name]
+            feats = ", ".join(rec.get("detected_features") or []) or "(none)"
+            print(f"{name:14} {rec.get('machine','?'):20} {feats}")
+        return 0
+    if sub == "drift":
+        report = capabilities.drift_report()
+        if not report:
+            print("(no intended capabilities declared)")
+            return 0
+        for r in report:
+            mark = {"ok": "ok   ", "drift": "DRIFT", "unknown": "?    "}.get(
+                r["status"], r["status"])
+            print(f"[{mark}] {r['bot']}")
+            if r["status"] == "unknown":
+                print(f"          never reported — intended: "
+                      f"{', '.join(r['intended'])}")
+                continue
+            if r["missing"]:
+                print(f"          missing: {', '.join(r['missing'])}")
+            if r["extra"]:
+                print(f"          extra:   {', '.join(r['extra'])}")
+            if not r["missing"] and not r["extra"]:
+                print(f"          all intended features present "
+                      f"({', '.join(r['intended'])})")
+        return 0
+    print(f"unknown capabilities subcommand: {sub}", file=sys.stderr)
+    return 2
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="cc-discord-kit",
                                 description="Shared memory + journal for multi-agent setups")
@@ -893,6 +1024,49 @@ def build_parser() -> argparse.ArgumentParser:
     rec.add_argument("query")
     rec.add_argument("--top-k", type=int, default=8)
 
+    # fact — reusable-string store for volatile literals
+    fct = top.add_parser(
+        "fact",
+        help="reusable-string facts: look up volatile literals "
+             "(commit hashes, message_ids, ports, IDs, paths) not from memory")
+    ctsub = fct.add_subparsers(dest="sub", required=True)
+
+    ctsub.add_parser("list")
+
+    ct_get = ctsub.add_parser("get")
+    ct_get.add_argument("key")
+
+    ct_set = ctsub.add_parser("set")
+    ct_set.add_argument("key", help="slug: [a-z0-9][a-z0-9._-]*")
+    ct_set.add_argument("value")
+    ct_set.add_argument("--note", default="", help="why/what this literal is")
+
+    ct_del = ctsub.add_parser("delete")
+    ct_del.add_argument("key")
+
+    ct_search = ctsub.add_parser("search")
+    ct_search.add_argument("term")
+
+    # capabilities — per-agent hook/feature capability matrix (anti-drift)
+    caps = top.add_parser("capabilities", aliases=["caps"],
+                          help="agent hook/feature capability matrix (anti-drift)")
+    csub = caps.add_subparsers(dest="sub", required=True)
+    csub.add_parser("report",
+                    help="record THIS agent's actual installed hooks/features")
+    c_show = csub.add_parser("show", help="print the matrix (or one agent)")
+    c_show.add_argument("bot", nargs="?", help="limit to one agent")
+    csub.add_parser("drift",
+                    help="diff intended vs actual features per agent")
+
+    # bots — fleet management (doctor validates agents.yaml against reality)
+    botsp = top.add_parser("bots",
+                           help="agent fleet management (registry: agents.yaml)")
+    bsub = botsp.add_subparsers(dest="sub", required=True)
+    bsub.add_parser("doctor",
+                    help="validate every agent in agents.yaml against reality")
+    bsub.add_parser("list",
+                    help="list all agents in agents.yaml with kind + host")
+
     return p
 
 
@@ -926,6 +1100,20 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_persona(args)
     if args.cmd == "recall":
         return cmd_recall(args)
+    if args.cmd == "fact":
+        return cmd_fact(args)
+    if args.cmd in ("capabilities", "caps"):
+        return cmd_capabilities(args)
+    if args.cmd == "bots":
+        import bots_doctor, bot_config
+        if args.sub == "doctor":
+            print(bots_doctor.format_report(bots_doctor.run()))
+            return 0
+        if args.sub == "list":
+            for name, b in bot_config.load_bots().items():
+                kind = b.get("kind", "claude")
+                print(f"  {name:14} kind={kind:8} host={b.get('host','?')}")
+            return 0
     parser.print_help()
     return 2
 
