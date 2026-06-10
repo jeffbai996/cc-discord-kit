@@ -78,6 +78,9 @@ h1, h2, h3 { letter-spacing: -0.015em; font-weight: 600; }
 h2 { font-size: 1.4rem; margin: 0.4rem 0 0.4rem; }
 .muted { color: var(--muted); }
 
+/* attribution byline — small + muted, like the other metadata */
+.byline { color: var(--muted); font-size: 0.78rem; }
+
 /* pills (default) */
 .pill { display: inline-block; background: var(--pill); padding: 0.12rem 0.55rem;
         border-radius: 999px; font-size: 0.78rem; margin-right: 0.3rem;
@@ -92,6 +95,39 @@ a.pill:hover { color: var(--fg); border-color: var(--border-2);
 .pill.type-project  { background: var(--t-project-bg);  color: var(--t-project-fg);  border-color: var(--t-project-bd); }
 .pill.type-user     { background: var(--t-user-bg);     color: var(--t-user-fg);     border-color: var(--t-user-bd); }
 .pill.type-reference{ background: var(--t-reference-bg);color: var(--t-reference-fg);border-color: var(--t-reference-bd); }
+
+/* lifecycle tier pills — same shape/idiom as the type + file-category pills
+   (muted tint bg, saturated fg, mid border). Green Live / amber Cache /
+   red Storage, reusing the semantic-score palette (#3fb950/#d29922/#ff7b72).
+   Absent tier renders Live. Display-only here (no tier backend in this build). */
+.pill.tier-live    { background: rgba(63,185,80,0.14);  color: #56d364; border-color: rgba(63,185,80,0.38); }
+.pill.tier-cache   { background: rgba(210,153,34,0.14); color: #e3b341; border-color: rgba(210,153,34,0.38); }
+.pill.tier-storage { background: rgba(255,123,114,0.14);color: #ff7b72; border-color: rgba(255,123,114,0.38); }
+/* tier dot — small solid color cue to the LEFT of the pin icon, inline and
+   vertically centered (was stacked under the pin). The pin-cell is a flex
+   row [dot] [pin]; see .pin-cell below. */
+.tier-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+            flex: 0 0 auto; }
+.tier-dot.tier-live    { background: #3fb950; }
+.tier-dot.tier-cache   { background: #d29922; }
+.tier-dot.tier-storage { background: #f85149; }
+
+/* about + tags cells: pills are capped to 3 + a "+K" chip SERVER-SIDE (in the
+   template + JS renderer), so the cell holds at most 4 chips. nowrap +
+   overflow:hidden keep them on one line and clip gracefully in a very narrow
+   column — no JS layout measurement, no reflow, no race with live-search. */
+td.tags-cell, td.about-cell { overflow: hidden; white-space: nowrap; }
+td.tags-cell .pill, td.about-cell .pill { white-space: nowrap; }
+/* +N chip: deliberately NOT a data pill — a faded, pale-gray "show more" hint.
+   Near-transparent fill, soft dashed border, dimmed text so it recedes next to
+   the real tag/about pills instead of competing with them. */
+.pill.tag-more { cursor: pointer; color: #6e7681;
+                 background: rgba(110, 118, 129, 0.06);
+                 border: 1px dashed rgba(110, 118, 129, 0.35);
+                 font-weight: 500; font-variant-numeric: tabular-nums;
+                 white-space: nowrap; }
+.pill.tag-more:hover { color: #adbac7; background: rgba(110, 118, 129, 0.14);
+                       border-color: rgba(110, 118, 129, 0.6); }
 
 /* file-category pills (files browser) — keys mirror files_store.FILE_CATEGORIES.
    Pale tint bg + saturated text so they read on the dark theme. */
@@ -162,7 +198,14 @@ form.filters input:focus, form.filters select:focus,
   outline: none; border-color: var(--accent);
 }
 form.filters input[type=search] {
-  min-width: 280px; flex: 1 1 320px; max-width: 520px;
+  /* Don't GROW (flex-grow:0). With grow:1 the search box expanded to fill all
+     free space on the filter row, leaving zero room after the last control —
+     so "+ new" had nowhere to sit and wrapped to its own line (worst in
+     semantic/hybrid mode, where the mode toggle adds ~14rem of controls).
+     grow:0 keeps search at a sensible basis; leftover row space sits empty at
+     the right and "+ new" stays inline. Still shrinks so it yields on narrow
+     viewports instead of forcing a wrap. */
+  flex: 0 1 22rem; min-width: 8rem; max-width: 520px;
   padding-left: 0.85rem;
   background: var(--bg-3);  /* recess it slightly from filter chrome */
 }
@@ -175,9 +218,10 @@ form.filters input[type=search]:focus { background: var(--bg-2); }
 .result-count { font-size: 0.82rem; margin: 0.85rem 0 0.6rem; }
 .result-count strong { color: var(--fg); font-variant-numeric: tabular-nums; }
 
-/* + new button — anchored to the right end of the filter row,
-   always visible (the empty-state CTA still exists as a backup). */
-.new-memory-btn { margin-left: auto; }
+/* The on-page "+ new" button was removed (create via the header dropdown).
+   clear is the lone filter action — it only appears when a filter is active,
+   so it just flows to the right of the filter row. */
+.filter-clear { margin-left: auto; }
 
 /* trash page header: title left, 'empty trash' button right */
 .trash-header { display: flex; align-items: baseline; justify-content: space-between;
@@ -194,6 +238,13 @@ button:hover, .btn:hover { background: #1f2937; }
 
 /* tables */
 table { border-collapse: collapse; width: 100%; }
+/* The memories table uses fixed layout on desktop so columns honor set widths
+   instead of expanding to content (the about/tags columns ballooned and pushed
+   the table wider than the wrap, breaking it out of the page). On mobile this
+   table becomes display:block cards, so table-layout is moot there. */
+table.with-pin { table-layout: fixed; }
+table.with-pin td.name-cell { overflow: hidden; }
+table.with-pin td.name-cell a.entry { overflow-wrap: anywhere; }
 thead th { position: sticky; top: 60px; background: var(--bg); z-index: 5;
            border-bottom: 1px solid var(--border-2); }
 th, td { text-align: left; padding: 0.6rem 0.7rem;
@@ -303,8 +354,11 @@ details summary::-webkit-details-marker { color: var(--muted); }
 .pin-badge { display: inline-block; margin-left: 0.35rem; vertical-align: middle;
              color: #f0c674; }
 .pin-badge .pin-icon { fill: #f0c674; stroke: #f0c674; }
-.pin-cell { width: 1.6rem; padding-left: 0.35rem !important;
-            padding-right: 0 !important; text-align: center; }
+.pin-cell { width: 2.3rem; padding-left: 0.45rem !important;
+            padding-right: 0 !important; }
+/* inline row: [dot] [pin], vertically centered, spaced. */
+.pin-cell .pin-wrap { display: flex; align-items: center; gap: 0.4rem; }
+.pin-cell .pin-wrap form { margin: 0; display: inline-flex; }
 .pin-btn { background: none; border: none; padding: 0.25rem 0.3rem; cursor: pointer;
            color: var(--muted); opacity: 0.25; line-height: 1;
            transition: opacity 120ms ease, color 120ms ease; border-radius: 4px; }
@@ -345,12 +399,28 @@ tr.is-pinned:hover td { background: rgba(240, 198, 116, 0.08); }
   body { font-size: 14px; }
   .wrap { padding: 0.85rem 0.9rem 3rem; }
   th.small, td.small { display: none; }
+  /* Compact the type column on phones. The full 8rem column + the other fixed
+     columns overflowed the viewport (about/tags/date hide, but type stayed
+     visible at 8rem, crushing the name and tipping the table into a horizontal
+     scrollbar). Keep type as an aligned column — just skinny — and shrink the
+     pill so the longest label ("reference") still fits. Desktop keeps 8rem. */
+  th.type-col, td.type-col { width: 3.75rem !important; padding-left: 0.3rem; padding-right: 0.3rem; }
+  td.type-col .pill {
+    font-size: 0.6rem; padding: 0.1rem 0.35rem; letter-spacing: 0;
+    max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; display: inline-block; vertical-align: middle;
+  }
   thead th { top: 56px; }
-  header.site { padding-top: 0.4rem; padding-bottom: 0.5rem;
-                margin-bottom: 1rem; gap: 0.6rem; }
-  header.site .row { gap: 0.85rem; }
-  header.site a.brand { font-size: 1.18rem; }
-  header.site .muted { display: none; } /* hide kbd hints — no kb on phones */
+  /* Compact header on phones: smaller nav, tighter gaps, less vertical chrome. */
+  header.site { padding-top: 0.3rem; padding-bottom: 0.4rem;
+                margin-bottom: 0.7rem; gap: 0.4rem 0.7rem; }
+  header.site .row { gap: 0.55rem 0.7rem; }
+  header.site a { font-size: 0.82rem; padding: 0.15rem 0; }
+  header.site a.brand { font-size: 1.1rem; margin-right: 0.4rem; }
+  .dropdown-toggle { font-size: 0.82rem; }
+  /* ⌘K is keyboard-only — no use on a phone. !important because the base
+     .cmdk-trigger rule is defined later in the source. */
+  .cmdk-trigger { display: none !important; }
   /* tables: roomier touch targets, no hover */
   th, td { padding: 0.7rem 0.55rem; }
   td.date { font-size: 0.8rem; }
@@ -383,25 +453,51 @@ tr.is-pinned:hover td { background: rgba(240, 198, 116, 0.08); }
   /* detail body: respect viewport */
   .detail .body-render { padding: 0.85rem 0.9rem; font-size: 0.92rem; }
   .markdown-body pre { font-size: 0.78rem; }
-}
-@media (max-width: 480px) {
-  /* On very narrow phones, collapse the type column to a color dot only.
-     Index columns: expand, pin, id, type, name, [hidden cols], date, actions.
-     Type is column 4. Render the .pill text as 0px — keeps the colored
-     background as a 0.65rem dot anchored to the cell, so the user can
-     still distinguish memory types at a glance even with no label.
-     Journal table doesn't have a type column, so this is index-only. */
-  table.with-pin th:nth-child(4) { display: none; }
-  table.with-pin td:nth-child(4) {
-    width: 0.85rem; padding-left: 0.25rem; padding-right: 0.25rem;
-  }
-  table.with-pin td:nth-child(4) .pill {
-    font-size: 0; padding: 0; border: 0;
-    width: 0.65rem; height: 0.65rem;
-    border-radius: 50%; display: inline-block;
-  }
-}
 
+  /* ─── Memories list → CARD layout on phones ───────────────────────────────
+     A desktop table crammed onto a phone always overflowed horizontally (the
+     name column alone forced ~244px). Below 700px we relayout the SAME table
+     (one DOM — the live-search renderer keeps working) as a stack of cards.
+     Each row becomes a block card; cells become inline-flex chips that wrap;
+     order is controlled with flexbox `order`. No grid areas (those overlapped),
+     no fixed widths (those overflowed). */
+  table.with-pin,
+  table.with-pin tbody { display: block; width: 100%; }
+  table.with-pin thead { display: none; }
+  table.with-pin tr.entry-row {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.5rem;
+    background: var(--bg-2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 0.7rem 0.8rem; margin-bottom: 0.55rem;
+  }
+  table.with-pin tr.entry-row:hover td { background: transparent; }
+  table.with-pin tr.entry-row > td {
+    display: inline-flex; align-items: center; border: 0; padding: 0;
+    width: auto; max-width: 100%;
+  }
+  table.with-pin tr.entry-row > td.expand-cell { display: none !important; }
+  table.with-pin .id-cell { order: 0; width: auto !important; padding: 0 !important; }
+  table.with-pin .id-cell a.entry { font-size: 0.95rem; }
+  table.with-pin .pin-cell { order: 1; width: auto !important; padding: 0 !important; }
+  table.with-pin .pin-cell .pin-wrap { gap: 0.45rem; }
+  table.with-pin .tier-dot { width: 9px; height: 9px; }
+  table.with-pin .type-col { order: 2; width: auto !important; padding: 0 !important; }
+  table.with-pin .type-col .pill { font-size: 0.7rem; padding: 0.12rem 0.5rem; max-width: none; }
+  table.with-pin .row-actions { order: 3; margin-left: auto; width: auto; padding: 0 !important; }
+  table.with-pin .row-delete-btn { opacity: 0.6; }
+  table.with-pin tr.entry-row > td.name-cell { order: 4; flex: 1 0 100%; display: block; }
+  table.with-pin td.name-cell a.entry {
+    font-size: 0.95rem; font-weight: 600; white-space: normal; line-height: 1.35;
+  }
+  table.with-pin td.about-cell, table.with-pin td.date { display: none !important; }
+  table.with-pin td.tags-cell {
+    order: 5; flex: 1 0 100%; display: flex; flex-wrap: wrap; gap: 0.25rem;
+    white-space: normal; overflow: visible;
+  }
+  table.with-pin tr.expand-row { display: block; border: 0; background: transparent;
+                                 margin: -0.2rem 0 0.55rem; }
+  table.with-pin tr.expand-row[hidden] { display: none; }
+  table.with-pin tr.expand-row > td { display: block; padding: 0 !important; border: 0 !important; }
+}
 /* ─── Command palette (⌘K) ─── */
 .cmdk-trigger {
   background: var(--bg-3);
@@ -511,6 +607,51 @@ tr.is-pinned:hover td { background: rgba(240, 198, 116, 0.08); }
   font-size: 0.75rem;
 }
 .cmdk-foot .kbd { margin-right: 0.2rem; }
+
+/* ─── Confirm modal (replaces window.confirm — iOS Safari throttles the
+   native dialog inside submit handlers, so destructive buttons looked dead
+   on iPad). Pure DOM, no native dialog, identical on every device. Reuses
+   the cmdk overlay aesthetic. ─── */
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 9500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  backdrop-filter: blur(2px);
+}
+.confirm-overlay[hidden] { display: none; }
+.confirm-modal {
+  width: min(440px, calc(100vw - 2rem));
+  background: var(--bg-2);
+  border: 1px solid var(--border-2);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+.confirm-body {
+  padding: 1.2rem 1.3rem 0.4rem;
+  font-size: 0.95rem;
+  line-height: 1.55;
+  color: var(--fg);
+  white-space: pre-wrap;   /* honor \n in messages (merge/trash use them) */
+  word-wrap: break-word;
+}
+.confirm-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  padding: 1rem 1.3rem 1.2rem;
+}
+.confirm-foot .btn { padding: 0.5rem 1.1rem; }
+/* Touch targets: full-width stacked buttons on phones */
+@media (max-width: 480px) {
+  .confirm-foot { flex-direction: column-reverse; }
+  .confirm-foot .btn { width: 100%; text-align: center; }
+}
 
 /* Inline row controls */
 .expand-cell { width: 1.4rem; padding-right: 0.2rem; }
@@ -647,6 +788,20 @@ tr:hover .row-delete-btn { opacity: 0.6; }
       <span><span class="kbd">↑</span><span class="kbd">↓</span> nav</span>
       <span><span class="kbd">↵</span> select</span>
       <span><span class="kbd">esc</span> close</span>
+    </div>
+  </div>
+</div>
+
+<!-- Shared confirm modal. In-page replacement for window.confirm() (which
+     iOS Safari throttles inside submit handlers → dead delete buttons on
+     iPad). Any form/link carrying data-confirm="message" routes through
+     this. Confirm submits the pending form; cancel/Esc/backdrop dismisses. -->
+<div id="confirm-overlay" class="confirm-overlay" role="alertdialog" aria-modal="true" aria-labelledby="confirm-body" hidden>
+  <div class="confirm-modal">
+    <div id="confirm-body" class="confirm-body"></div>
+    <div class="confirm-foot">
+      <button type="button" id="confirm-cancel" class="btn btn-ghost">cancel</button>
+      <button type="button" id="confirm-ok" class="btn btn-danger">confirm</button>
     </div>
   </div>
 </div>
@@ -843,12 +998,89 @@ document.addEventListener("click", function (ev) {
   }
 });
 
-document.addEventListener("submit", function (ev) {
-  const form = ev.target.closest(".row-delete-form");
-  if (!form) return;
-  const msg = form.dataset.confirm || "Delete this entry?";
-  if (!window.confirm(msg)) ev.preventDefault();
-});
+// In-page confirm modal. Replaces window.confirm() everywhere — iOS Safari
+// suppresses the native dialog when it's triggered from a submit handler
+// (not a "direct" tap), so destructive buttons silently did nothing on
+// iPad. This is plain DOM, so it behaves identically on every device.
+//
+// Usage: put data-confirm="message" on any <form>. On submit we stop the
+// form, show the modal, and only let the form through once the user taps
+// "confirm". Supports \n in the message (rendered via white-space: pre-wrap).
+(function () {
+  const overlay = document.getElementById("confirm-overlay");
+  const body    = document.getElementById("confirm-body");
+  const okBtn   = document.getElementById("confirm-ok");
+  const cancelBtn = document.getElementById("confirm-cancel");
+  if (!overlay) return;
+
+  let resolver = null;  // resolve() of the currently-open confirm promise
+
+  // Promise-based confirm. Resolves true (confirm) or false (cancel/dismiss).
+  // Exposed as window.uiConfirm so async handlers (digest/transcripts) can
+  // `await uiConfirm(msg)` instead of the iPad-broken native confirm().
+  function uiConfirm(msg) {
+    return new Promise(function (resolve) {
+      resolver = resolve;
+      body.textContent = msg || "Are you sure?";
+      overlay.removeAttribute("hidden");
+      setTimeout(function () { okBtn.focus(); }, 0); // iOS focus quirk
+    });
+  }
+  window.uiConfirm = uiConfirm;
+
+  function settle(result) {
+    overlay.setAttribute("hidden", "");
+    const r = resolver;
+    resolver = null;
+    if (r) r(result);
+  }
+
+  // Auto-wire any form carrying data-confirm. Capture phase so we beat the
+  // native submit and other listeners. On confirm we re-fire the form with
+  // a one-shot flag so we don't loop back into the modal.
+  document.addEventListener("submit", function (ev) {
+    const form = ev.target.closest && ev.target.closest("form[data-confirm]");
+    if (!form) return;
+    if (form.dataset.confirmed === "1") {
+      form.removeAttribute("data-confirmed");
+      return; // confirmed already — let it through
+    }
+    ev.preventDefault();
+    uiConfirm(form.dataset.confirm).then(function (ok) {
+      if (!ok) return;
+      form.dataset.confirmed = "1";
+      if (typeof form.requestSubmit === "function") form.requestSubmit();
+      else form.submit();
+    });
+  }, true);
+
+  okBtn.addEventListener("click", function () { settle(true); });
+  cancelBtn.addEventListener("click", function () { settle(false); });
+  overlay.addEventListener("click", function (ev) {
+    if (ev.target === overlay) settle(false);
+  });
+  document.addEventListener("keydown", function (ev) {
+    if (overlay.hasAttribute("hidden")) return;
+    if (ev.key === "Escape") { ev.preventDefault(); settle(false); }
+    else if (ev.key === "Enter") { ev.preventDefault(); settle(true); }
+  });
+})();
+
+// +N pill chip → expand the row. Pills are capped SERVER-SIDE (first 3 + a
+// "+K" chip, in the template / JS renderer) — no client-side layout
+// measurement, so this is just a click handler that opens the row's expand
+// panel where the full tag/about list lives. (Replaced the old offsetTop-
+// measuring collapser, which fought table layout and raced the live re-render.)
+(function () {
+  document.addEventListener("click", function (ev) {
+    const more = ev.target.closest && ev.target.closest(".tag-more");
+    if (!more) return;
+    ev.preventDefault();
+    const row = more.closest("tr");
+    const expandBtn = row && row.querySelector(".expand-btn");
+    if (expandBtn) expandBtn.click();
+  });
+})();
 </script>
 {% block scripts %}{% endblock %}
 </body>

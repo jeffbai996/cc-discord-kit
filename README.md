@@ -91,10 +91,19 @@ The store/server layer originated here; the Claude Code hooks were developed alo
 - `hooks/narrate.py`, `hooks/tool_watcher.py`, `hooks/react_hook.py` — the three observability lanes (narration / tool-trace / emoji-state).
 - `hooks/discord_passthrough.py` — run `!cmd` / `/cmd` from Discord on the host, reply inline, zero token spend. See `commands/README.md`.
 - `hooks/notify_hook.py` — mirror Claude Code permission prompts to Discord (read-only).
-- `discord_handler.py` — optional `/mem` + `/journal` slash-command bot.
+- `discord_handler.py` — optional slash-command bot: `/mem`, `/journal`, `/persona`, `/bot`, `/squad`, `/vecgrep`.
+
+**Fleet management** (optional — for running several agents off one `agents.yaml`)
+- `bot_config.py` — single source of truth: reads `agents.yaml` and resolves which agent a given Claude Code session is (by config dir), with per-agent fields (kind, host, home channel, access.json path).
+- `bot_admin.py` — toggle per-channel Discord flags (requireMention / narrate / tool-watcher / allowed) for any agent in the registry; backs the `/bot` slash surface.
+- `bots_doctor.py` — validate every agent in `agents.yaml` against reality (persona files present, hooks wired, unit alive) and report problems.
+- `capabilities.py` — a capability matrix each agent self-reports into, so you can spot drift (one agent missing a hook the others have).
+- `new_bot.py` — scaffold a new agent: emits its `settings.json` (the kit's hook set), an `agents.yaml` entry, a launcher, and a presence file.
+- `facts.py` — a tiny key→value store for reusable literals (ports, IDs, paths) agents should look up rather than hallucinate.
 
 **Ops**
 - `inventory.py` — live read of hooks, crontab, systemd units, launchd agents across hosts (cached 30s, never writes).
+- `shot.py` — Playwright screenshot helper for visually verifying the web UI (`CCDK_HOST`/`CCDK_PORT`).
 - `digest.py` — pull recent channel history for review; optional Gemini summarize.
 
 ## Install
@@ -184,6 +193,18 @@ cc-discord-kit memory unshare 42 --with agent-1
 cc-discord-kit persona show agent-1 persona.md      # print file contents
 cc-discord-kit persona edit agent-1 persona.md      # opens $EDITOR; saves on exit
 cc-discord-kit persona write agent-1 persona.md "<text>"  # write directly
+
+# Fleet management (needs agents.yaml + PyYAML)
+cc-discord-kit bots list                            # agents in the registry
+cc-discord-kit bots doctor                          # validate each against reality
+cc-discord-kit capabilities report                  # this agent self-reports its hooks/features
+cc-discord-kit capabilities show [agent]            # the capability matrix
+cc-discord-kit capabilities drift                   # who's missing what
+cc-discord-kit fact set <key> <value> [--note ...]  # reusable literal store
+cc-discord-kit fact get <key>
+cc-discord-kit fact list
+cc-discord-kit fact search <term>
+cc-discord-kit fact delete <key>
 ```
 
 
@@ -406,14 +427,23 @@ If no Discord origin is in the user message (e.g. the save happened in a termina
 
 ## Discord bot
 
-`discord_handler.py` is an optional standalone bot exposing `/mem` and
-`/journal` slash commands. To set up:
+`discord_handler.py` is an optional standalone bot exposing these slash
+command groups:
+
+- **`/mem`** — `list`/`show`/`add`/`search`/`edit`/`pin`/`delete`/`retag`/`reabout`/`dupes`, plus `trash`/`restore` (delete is a recoverable soft-delete).
+- **`/journal`** — `list`/`show`/`add`/`search`/`pin`/`delete`.
+- **`/persona`** — `list`/`show`/`edit` agent persona files.
+- **`/bot`** — `list`/`info`/`set`/`toggle`/`narrate`/`tools`/`doctor`: manage per-channel flags for the agents in `agents.yaml`. Admin-gated via `CCDK_ADMIN_ID`.
+- **`/squad`** — `status`/`services`/`restart`/`logs`/`presence`: systemd ops over the units in `CCDK_SERVICES` (a `unit:label` CSV; empty by default).
+- **`/vecgrep`** — semantic search over your corpora (needs `vecgrep_client.py` wired; extra corpora via `CCDK_VECGREP_CORPORA`).
+
+To set up:
 
 1. Create a Discord application + bot at <https://discord.com/developers/applications>.
 2. Under **OAuth2 → URL Generator**, select scopes `bot` and `applications.commands`. The bot only needs the **default** intents — no Message Content Intent required.
 3. Invite the bot to your server with the generated URL.
 4. Set `CCDK_DISCORD_TOKEN=<token>` in `~/.config/cc-discord-kit/env`.
-5. Optionally set `CCDK_GUILD_IDS=<csv of guild IDs>` for instant slash-command sync (otherwise it's ~1hr global propagation).
+5. Optionally set `CCDK_GUILD_IDS=<csv of guild IDs>` for instant slash-command sync (otherwise it's ~1hr global propagation). For the fleet commands, also set `CCDK_ADMIN_ID` (your Discord user id) and populate `agents.yaml`.
 6. Run `python3 discord_handler.py` (or enable the systemd unit installed by `install.sh`).
 
 ## Tests

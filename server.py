@@ -679,6 +679,11 @@ def api_search():
             "bot": m.get("bot") or [],
             "pinned": bool(m.get("pinned")),
             "ts": m.get("ts", ""),
+            # Tier + attribution so the in-page re-render keeps the dots/byline.
+            # No tier backend in this build; absent tier renders Live.
+            "tier": m.get("tier") or "Live",
+            "author": m.get("author") or "",
+            "last_editor": m.get("last_editor") or "",
         }
 
     return jsonify({

@@ -39,6 +39,23 @@ agents:
       path: ~/repos/agent-configs/agent-3/persona.md
       mode: git
 
+  # Richer form (optional): instead of a bare slot list, an agent may be a
+  # mapping with a `personas:` sub-key plus extra fields the fleet tooling
+  # (bots_doctor.py, bot_config.py, capabilities.py) reads. personas.py
+  # accepts both forms, so mix freely. Every extra field is optional — a
+  # missing field just skips the doctor check that needs it.
+  agent-4:
+    kind: claude                       # "claude" (default) or a daemon kind, e.g. "service"
+    config_dir: ~/.config/agent-4      # the agent's Claude config dir (for detect_bot)
+    home_channel: "1234567890123456789"  # Discord channel id for card routing
+    access_json: ~/.config/agent-4/channels/discord/access.json
+    host: localhost                    # host the agent runs on
+    transport: null                    # ssh-wrapper command for a remote host; null = local
+    personas:
+      - slot: CLAUDE.md
+        path: ~/agents/agent-4/CLAUDE.md
+        mode: plain
+
 # Optional: per-agent metadata. Only used by the CLI today for the
 # Discord card fallback when no --discord-chat-id is passed and the
 # active Claude Code transcript has no <channel> tag. If you set
@@ -50,3 +67,24 @@ agent_meta:
     discord_home_channel: "1234567890123456789"
   agent-2:
     discord_home_channel: "9876543210987654321"
+
+# Optional: per-bot access.json registry for bot_admin.py (the /bot slash
+# admin surface). Each entry points at a bot's access.json so the helper
+# can toggle per-channel flags (requireMention, narrate, tools, allowed).
+#   schema: "claude" — Claude Code --channels access.json shape
+#           "gemma"  — Gemini-style daemon access.json shape
+#   remote: optional SSH-wrapper command; ops route through it instead of
+#           touching the file locally (for bots whose files live on another
+#           host). Omit for local bots.
+# Leave this block out entirely if you don't use /bot admin.
+bot_admin:
+  my-bot-1:
+    path: ~/.config/my-bot-1/channels/discord/access.json
+    schema: claude
+  my-bot-2:
+    path: /remote/host/path/access.json
+    schema: claude
+    remote: my-ssh-wrapper
+  my-bot-3:
+    path: ~/.config/my-bot-3/access.json
+    schema: gemma

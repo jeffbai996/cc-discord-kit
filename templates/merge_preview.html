@@ -30,7 +30,13 @@
     </section>
   </div>
 
-  <form method="post" action="{{ url_for('memory_merge', winner_id=winner.id) }}">
+  <form method="post" action="{{ url_for('memory_merge', winner_id=winner.id) }}"
+        data-confirm="Merge #{{ loser.id }} into #{{ winner.id }}?
+&#10;This will:
+• update #{{ winner.id }} with the text above
+• rewrite refs in {{ (backlinks.memories|length) + (backlinks.journal|length) }} other record(s)
+• move #{{ loser.id }} to trash
+&#10;All steps are reversible from history/trash.">
     <input type="hidden" name="loser_id" value="{{ loser.id }}">
 
     <label>merged text (edit before applying)</label>
@@ -71,8 +77,7 @@
     {% endif %}
 
     <div class="toolbar">
-      <button class="btn-primary" type="submit"
-              onclick="return confirm('Merge #{{ loser.id }} into #{{ winner.id }}?\n\nThis will:\n• update #{{ winner.id }} with the text above\n• rewrite refs in {{ (backlinks.memories|length) + (backlinks.journal|length) }} other record(s)\n• move #{{ loser.id }} to trash\n\nAll steps are reversible from history/trash.');">
+      <button class="btn-primary" type="submit">
         apply merge
       </button>
       <a class="btn btn-ghost" href="{{ url_for('memory_detail', memory_id=winner.id) }}">cancel</a>

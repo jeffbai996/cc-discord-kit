@@ -37,7 +37,7 @@
         <pre class="history-snapshot">{{ (h.before or {}) | tojson(indent=2) }}</pre>
       </details>
       <form method="post" action="{{ url_for('history_revert') }}"
-            onsubmit="return confirm('Revert to this prior state?');"
+            data-confirm="Revert to this prior state?"
             style="margin-top: 0.6rem;">
         <input type="hidden" name="kind" value="{{ target_kind }}">
         <input type="hidden" name="id" value="{{ target.id }}">

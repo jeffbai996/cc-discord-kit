@@ -3,6 +3,7 @@
 {% block content %}
 
 <div class="detail">
+  {% set _tier = m.tier or 'Live' %}
   <h2>
     <span class="muted" style="font-weight: 500;">#</span><strong>{{ m.id }}</strong>
     <span style="margin-left: 0.4rem;">{{ m.name or 'untitled' }}</span>
@@ -10,6 +11,7 @@
   </h2>
   <div class="meta">
     <span class="pill type-{{ m.type or 'default' }}">{{ m.type | type_label }}</span>
+    <span class="pill tier-{{ _tier|lower }}" title="tier: {{ _tier }}">{{ _tier }}</span>
     {% if m.about %}
       <span class="sep">·</span>
       {% for a in m.about %}<a class="pill" href="{{ url_for('index', about=a) }}">{{ a }}</a>{% endfor %}
@@ -20,6 +22,10 @@
     {% endif %}
     <span class="sep">·</span>
     <span>saved {{ (m.ts or '')[:10] }}</span>
+    {% if m.author %}
+      <span class="sep">·</span>
+      <span class="byline">by {{ m.author }}{% if m.last_editor and m.last_editor != m.author %} (ed. {{ m.last_editor }}){% endif %}</span>
+    {% endif %}
     {% if m.bot %}<span class="sep">·</span><span>bot: {{ m.bot|join(', ') }}</span>{% endif %}
   </div>
 
@@ -93,7 +99,7 @@
   </form>
 
   <form method="post" action="{{ url_for('memory_delete_form', memory_id=m.id) }}"
-        onsubmit="return confirm('Delete memory #{{ m.id }}?');"
+        data-confirm="Delete memory #{{ m.id }}? It moves to trash and can be restored."
         style="margin-top: 1rem;">
     <button class="btn-danger" type="submit">delete memory</button>
   </form>

@@ -262,11 +262,15 @@ def load_memories_raw() -> list[dict]:
 def save_memory(text: str, *, type: str = "feedback", name: str = "",
                 tags: list[str] | None = None,
                 about: list[str] | None = None,
-                bot: list[str] | None = None) -> dict:
+                bot: list[str] | None = None,
+                author: str = "") -> dict:
     """Save a durable memory. Type: user|feedback|project|reference.
 
-    about: free-form subject labels. Defaults to [].
-    bot:   if set, only matching bots include this in default views. Default null.
+    about:  free-form subject labels. Defaults to [].
+    bot:    if set, only matching bots include this in default views. Default null.
+    author: who CREATED this memory. Immutable — set once here, never overwritten
+            by edit_memory. The store is pure: identity is passed in (the CLI
+            fills it from _detect_calling_bot()), not detected here.
     """
     if type not in VALID_TYPES:
         type = "feedback"
@@ -276,6 +280,7 @@ def save_memory(text: str, *, type: str = "feedback", name: str = "",
         "tags": list(tags) if tags else [],
         "text": _strip_rendered_header(text.strip()),
         "about": list(about) if about else [],
+        "author": author,
     }
     if bot is not None:
         fields["bot"] = list(bot)
@@ -287,7 +292,11 @@ def edit_memory(memory_id: int, text: str | None = None, *,
                 tags: list[str] | None = None,
                 about: list[str] | None = None,
                 bot: list[str] | None = None,
-                pinned: bool | None = None) -> bool:
+                pinned: bool | None = None,
+                editor: str = "") -> bool:
+    """Edit a memory. `editor` (when non-empty) stamps `last_editor` — who last
+    changed it. `author` is never touched here: creation attribution is
+    immutable. Identity is passed in by the CLI, kept out of the pure store."""
     fields: dict = {}
     if text is not None:
         fields["text"] = _strip_rendered_header(text.strip())
@@ -305,6 +314,8 @@ def edit_memory(memory_id: int, text: str | None = None, *,
         fields["pinned"] = bool(pinned)
     if not fields:
         return False
+    if editor:
+        fields["last_editor"] = editor
     return _memories.update(memory_id, fields)
 
 
@@ -422,6 +433,19 @@ def unshare_memory(memory_id: int, with_bot: str) -> bool:
     return False
 
 
+def _attribution_suffix(m: dict) -> str:
+    """Terse ' — {author}' tag for a memory's header line, with ' (ed. {editor})'
+    appended when a different agent last edited it. "" when no author is recorded."""
+    author = m.get("author") or ""
+    if not author:
+        return ""
+    suffix = f" — {author}"
+    editor = m.get("last_editor") or ""
+    if editor and editor != author:
+        suffix += f" (ed. {editor})"
+    return suffix
+
+
 def format_memories_for_prompt(*, bot: str | None = None,
                                types: list[str] | None = None,
                                exclude_types: list[str] | None = None) -> str:
@@ -457,6 +481,7 @@ def format_memories_for_prompt(*, bot: str | None = None,
                 extras.append("about: " + ', '.join(m['about']))
             if extras:
                 header += f" ({' | '.join(extras)})"
+            header += _attribution_suffix(m)
             lines.append(f"- {header}")
             lines.append(f"  {m['text']}")
     return "\n".join(lines)
@@ -501,6 +526,7 @@ def format_memories_index(*, bot: str | None = None,
             about = m.get("about", [])
             if about:
                 head += f" [{','.join(about)}]"
+            head += _attribution_suffix(m)
             lines.append(f"  {head}")
     return "\n".join(lines)
 
@@ -558,6 +584,7 @@ def format_memories_full_preload(*, bot: str | None = None, budget_tokens: int =
         tags = m.get("tags", [])
         if tags:
             head += f" ({','.join(tags[:3])})"
+        head += _attribution_suffix(m)
         lines.append(head)
         lines.append(f"  {m.get('text', '')}")
     return "\n".join(lines), [m["id"] for m in loaded]
