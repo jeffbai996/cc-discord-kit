@@ -446,6 +446,18 @@ To set up:
 5. Optionally set `CCDK_GUILD_IDS=<csv of guild IDs>` for instant slash-command sync (otherwise it's ~1hr global propagation). For the fleet commands, also set `CCDK_ADMIN_ID` (your Discord user id) and populate `agents.yaml`.
 6. Run `python3 discord_handler.py` (or enable the systemd unit installed by `install.sh`).
 
+## Spoken voice (TTS / STT)
+
+Audible voice — the agent *speaking* short replies into a Discord voice channel, and/or transcribing what you say back — is doable, but deliberately **not bundled here**. It's a different shape from everything above: it needs a voice-capable Discord client (the Claude Code plugin is text-only), a TTS provider (typically a paid API), and ffmpeg/opus for audio. That's a heavy, mostly-paid dependency most users of a text-bot kit won't want, so it lives outside the kit.
+
+The working pattern, if you want it, is a small **standalone companion process** (its own repo) that:
+
+1. joins a Discord voice channel and exposes a one-shot CLI — `say <text-channel-id> "<short reply>"` streams TTS audio into the paired voice channel (~3s to first audio with a streaming model);
+2. is gated by an explicit *voice-mode* toggle — a small JSON config pairing a text channel ↔ a voice channel, with an allowlist and a master on/off switch. No always-on presence polling (a per-reply "is anyone in the VC" gateway check is more annoying than it's worth);
+3. is driven by a line in your `SHARED.md` rules doc, **not a hook**: *"while voice mode is on, run `say` with a 1–3 sentence version of your reply, then echo that same short text to the channel; on error or empty playback, fall back to a normal text reply."*
+
+So the integration is a **rules-doc protocol plus an external CLI call** — which is exactly why there's no `hooks/voice.py`. It isn't hook-shaped, and forcing it into the hook layer would only drag a paid API and a second Discord client into a text/observability kit. Keep the voice helper as its own repo; the two compose cleanly without coupling.
+
 ## Tests
 
 ```bash
