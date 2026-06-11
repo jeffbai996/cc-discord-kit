@@ -79,3 +79,17 @@ def test_pid_alive():
     assert av._pid_alive(os.getpid())
     assert not av._pid_alive(None)
     assert not av._pid_alive("not-a-pid")
+
+
+def test_tick_never_loses_agent_on_stale_transcript(monkeypatch):
+    """A linked transcript whose last activity PREDATES the registration
+    is a mis-link, not a silent agent — must stay running."""
+    agents = {"k": _running()}
+    agents["k"]["started_at"] = 10_000.0
+    monkeypatch.setattr(av, "match_transcripts", lambda d, a: None)
+    monkeypatch.setattr(av, "read_transcript_stats",
+                        lambda p: {"tokens": 5, "model": "m",
+                                   "last_ts": 100.0})  # long before start
+    av.tick_agents(agents, subagents_dir="/tmp/none",
+                   now=10_000.0 + av._LOST_AFTER + 60)
+    assert agents["k"]["status"] == "running"

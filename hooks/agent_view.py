@@ -296,12 +296,17 @@ def handle_post(payload: dict, failed: bool) -> int:
         return 0
     base = _agent_key(tool_input)
     target = None
-    for agent in sess["agents"].values():
-        if agent["prompt_sha"] == base and agent["status"] == "running":
-            target = agent
+    for want in ("running", "lost"):
+        for agent in sess["agents"].values():
+            if agent["prompt_sha"] == base and agent["status"] == want:
+                target = agent
+                break
+        if target:
             break
     if target is None:
         return 0
+    # the harness's completion event is ground truth — it overrides a
+    # provisional lost-marking from the updater
     target["status"] = "failed" if failed else "done"
     target["ended_at"] = time.time()
     if isinstance(resp, dict) and resp.get("agentId"):
@@ -334,7 +339,10 @@ def tick_agents(agents: dict, subagents_dir: str, now: float) -> None:
         if stats["model"] and not a.get("model"):
             a["model"] = stats["model"]
         if (a["status"] == "running" and stats["last_ts"]
+                and stats["last_ts"] >= (a.get("started_at") or 0)
                 and now - stats["last_ts"] > _LOST_AFTER):
+            # last_ts < started_at would mean we linked a stale file —
+            # that's a matching bug, not a silent agent; never "lose" it
             a["status"] = "lost"
             a["ended_at"] = stats["last_ts"]
 
@@ -436,11 +444,26 @@ def run_updater(session: str) -> None:
 # I/O and turn lookup without importing their full machinery.
 
 def _bot_name() -> str:
-    """SQUAD_STORE_BOT when set; else the bot home dir name — hooks and
-    the updater inherit the session cwd (~/claude-agents/<bot>)."""
+    """Panel-header identity. Precedence: SQUAD_STORE_BOT env override;
+    the squad bot registry (bot_config.detect_bot resolves co-located
+    bots by config/state dir — turns ~/.claude into 'fraggy' instead of
+    the cwd basename); session cwd basename as the last resort."""
     name = os.environ.get("SQUAD_STORE_BOT")
     if name:
         return name
+    try:
+        store_dir = os.path.dirname(SCRIPT_DIR)  # bot_config.py at repo root
+        if store_dir not in sys.path:
+            sys.path.insert(0, store_dir)
+        import bot_config
+        from narrate import detect_discord_state_dir
+        detected = bot_config.detect_bot(
+            config_dir=os.environ.get("CLAUDE_CONFIG_DIR", ""),
+            discord_state_dir=detect_discord_state_dir())
+        if detected:
+            return detected
+    except Exception:  # noqa: BLE001 — cosmetic, never block the panel
+        pass
     cwd = os.path.basename(os.getcwd().rstrip("/"))
     return cwd or "bot"
 
@@ -719,12 +742,18 @@ def _first_prompt(path: str) -> str:
         return ""
 
 
+_MATCH_SLACK = 120  # seconds a transcript may predate its registration
+
+
 def match_transcripts(subagents_dir: str, agents: dict) -> None:
     """Link registered-but-unlinked agents to their transcript files.
 
     agentId (from PostToolUse) wins when present; otherwise match by
-    verbatim prompt prefix. Each transcript file is claimed at most
-    once so identical parallel registrations don't share a file."""
+    verbatim prompt prefix — but ONLY against files created around or
+    after the registration. Stale files from earlier (pre-hook) bursts
+    in the same session can share a prompt prefix; matching one poisons
+    tokens/elapsed and triggers instant bogus lost-marking (seen live
+    2026-06-11). Each file is claimed at most once."""
     import glob as _glob
     if not any(not a.get("transcript") for a in agents.values()):
         return
@@ -735,6 +764,10 @@ def match_transcripts(subagents_dir: str, agents: dict) -> None:
         aid = os.path.basename(path)[len("agent-"):-len(".jsonl")]
         if aid in claimed:
             continue
+        try:
+            f_mtime = os.path.getmtime(path)
+        except OSError:
+            continue
         prompt = None  # lazy — only read when a prefix match is needed
         for agent in agents.values():
             if agent.get("transcript"):
@@ -744,6 +777,10 @@ def match_transcripts(subagents_dir: str, agents: dict) -> None:
                     agent["transcript"] = path
                     claimed.add(aid)
                     break
+                continue
+            # prefix matching only considers files still being written
+            # at (or created after) registration time
+            if f_mtime < (agent.get("started_at") or 0) - _MATCH_SLACK:
                 continue
             if prompt is None:
                 prompt = _first_prompt(path)

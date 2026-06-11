@@ -52,7 +52,7 @@ def _reg(desc, prompt):
     return {"prompt_sha": av._agent_key({"description": desc,
                                          "prompt": prompt}),
             "agent_id": None, "transcript": None, "_prompt": prompt[:200],
-            "status": "running"}
+            "status": "running", "started_at": 0.0}
 
 
 def test_match_transcripts_links_pending_agents_by_prompt(tmp_path):
@@ -89,3 +89,31 @@ def test_match_transcripts_no_dir():
     agents = {"k": _reg("d", "p")}
     av.match_transcripts("/nonexistent/dir", agents)  # no raise
     assert agents["k"]["transcript"] is None
+
+
+def test_match_skips_stale_files_from_earlier_bursts(tmp_path):
+    """Regression (2026-06-11): an old unclaimed transcript from a
+    pre-hook burst with the same prompt prefix must not be linked to a
+    new registration — it poisons tokens and triggers bogus lost-marks."""
+    import os, time
+    stale = _write_subagent(tmp_path, "old1", "SAME PROMPT text", [("m", 99)])
+    old = time.time() - 3600
+    os.utime(stale, (old, old))
+    a = _reg("d", "SAME PROMPT text")
+    a["started_at"] = time.time()
+    agents = {"k": a}
+    av.match_transcripts(str(tmp_path), agents)
+    assert agents["k"]["transcript"] is None  # stale file not matched
+
+
+def test_match_agent_id_links_regardless_of_age(tmp_path):
+    import os, time
+    f = _write_subagent(tmp_path, "a9", "whatever", [("m", 1)])
+    old = time.time() - 3600
+    os.utime(f, (old, old))
+    a = _reg("d", "different prompt")
+    a["agent_id"] = "a9"  # definitive link from PostToolUse
+    a["started_at"] = time.time()
+    agents = {"k": a}
+    av.match_transcripts(str(tmp_path), agents)
+    assert agents["k"]["transcript"].endswith("agent-a9.jsonl")

@@ -95,3 +95,17 @@ def test_pre_records_explicit_model(tmp_path, monkeypatch):
     av.handle_pre(p)
     (agent,) = av._load_av_state()["testbot:sess1"]["agents"].values()
     assert agent["model"] == "haiku"
+
+
+def test_post_overrides_provisional_lost(tmp_path, monkeypatch):
+    """The harness completion event is ground truth — it settles an
+    agent the updater provisionally marked lost."""
+    _isolate(tmp_path, monkeypatch)
+    av.handle_pre(_payload())
+    state = av._load_av_state()
+    (agent,) = state["testbot:sess1"]["agents"].values()
+    agent["status"] = "lost"
+    av._save_av_state(state)
+    av.handle_post(_payload(resp={"agentId": "a1"}), failed=False)
+    (agent,) = av._load_av_state()["testbot:sess1"]["agents"].values()
+    assert agent["status"] == "done"
