@@ -56,9 +56,8 @@ def test_agents_command_renders_live_state(tmp_path, monkeypatch):
 
 
 def test_agents_snapshot_does_not_bleed_across_bots(tmp_path, monkeypatch):
-    """Regression: fragserv bots share the state file — one bot's !agents
-    must never serve another bot's registry (2026-06-11, Fraggy showed
-    another bot's demo agents)."""
+    """Regression: co-located bots share the state file — one bot's
+    !agents must never serve another bot's registry."""
     monkeypatch.setenv("CCDK_AGENT_VIEW_STATE", str(tmp_path / "s.json"))
     import agent_view as av
     other = {"chat_id": "1", "transcript_path": "/t", "updater_pid": None,

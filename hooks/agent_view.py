@@ -177,8 +177,8 @@ _AGENT_TOOLS = ("Agent", "Task")
 
 
 def _bot_key() -> str:
-    """Per-bot namespace for the shared state file. The fragserv bots
-    share one filesystem (and so one agent_view_state.json) — without
+    """Per-bot namespace for the shared state file. Bots co-located on
+    one machine share one agent_view_state.json — without
     this prefix, one bot's !agents snapshot serves another bot's
     registry. Reuses react_hook's _bot_id partitioning via narrate."""
     try:
