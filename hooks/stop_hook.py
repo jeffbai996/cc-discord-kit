@@ -318,9 +318,13 @@ def _find_journal(jid: int) -> dict | None:
 # posting live in discord_card.py so the CLI can emit byte-identical cards
 # when invoked with --discord-* flags.
 
+# chat_id matched as a numeric snowflake (17-20 digits): a permissive capture
+# treats EXAMPLE tags in docs/persona (chat_id="X" / chat_id="...") as real
+# inbound origins, which makes the echo-guard misfire on placeholder channels.
+# A real Discord chat_id is always a snowflake. (message_id stays permissive.)
 _CHANNEL_TAG_RE = re.compile(
     r'<channel\s+source=["\'](?:plugin:discord:discord|discord)["\']'
-    r'[^>]*?chat_id=["\']([^"\']+)["\']'
+    r'[^>]*?chat_id=["\'](\d{17,20})["\']'
     r'[^>]*?message_id=["\']([^"\']+)["\']',
     re.IGNORECASE,
 )

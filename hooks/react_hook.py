@@ -536,9 +536,17 @@ def _last_user_entry(transcript_path: str) -> dict | None:
 # Discord channel tag patterns. The plugin emits:
 #   <channel source="discord" chat_id="..." message_id="..." user="..." ts="...">
 # Both quoted forms (single + double) seen in the wild.
+#
+# chat_id is matched as a numeric snowflake (17-20 digits) on purpose.
+# Documentation/persona text can carry EXAMPLE tags with placeholder ids like
+# chat_id="X" or chat_id="..."; a permissive [^"']+ capture treated those as
+# real inbound origins, which made crosscheck fire bogus cross-post warnings.
+# A real Discord chat_id is always a snowflake, so the digit constraint rejects
+# every placeholder at the source. (message_id stays permissive — it isn't used
+# for the cross-channel comparison, only to react on the inbound message.)
 CHANNEL_TAG_RE = re.compile(
     r'<channel\s+source=["\'](?:plugin:discord:discord|discord)["\']'
-    r'[^>]*?chat_id=["\']([^"\']+)["\']'
+    r'[^>]*?chat_id=["\'](\d{17,20})["\']'
     r'[^>]*?message_id=["\']([^"\']+)["\']',
     re.IGNORECASE,
 )
