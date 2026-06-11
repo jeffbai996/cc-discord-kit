@@ -39,7 +39,8 @@ def test_agents_command_bypasses_shell_empty_state(tmp_path, monkeypatch):
 def test_agents_command_renders_live_state(tmp_path, monkeypatch):
     monkeypatch.setenv("CCDK_AGENT_VIEW_STATE", str(tmp_path / "s.json"))
     import agent_view as av
-    av._save_av_state({"sess1": {
+    monkeypatch.setattr(av, "_bot_key", lambda: "testbot")
+    av._save_av_state({"testbot:sess1": {
         "chat_id": "1", "transcript_path": "/t", "updater_pid": None,
         "standalone_msg_id": None,
         "agents": {"k": {"label": "research", "model": "claude-haiku-4-5",
@@ -52,3 +53,25 @@ def test_agents_command_renders_live_state(tmp_path, monkeypatch):
     assert "research" in out
     assert "haiku" in out
     assert "1.5k" in out
+
+
+def test_agents_snapshot_does_not_bleed_across_bots(tmp_path, monkeypatch):
+    """Regression: fragserv bots share the state file — one bot's !agents
+    must never serve another bot's registry (2026-06-11, Fraggy showed
+    another bot's demo agents)."""
+    monkeypatch.setenv("CCDK_AGENT_VIEW_STATE", str(tmp_path / "s.json"))
+    import agent_view as av
+    other = {"chat_id": "1", "transcript_path": "/t", "updater_pid": None,
+             "standalone_msg_id": None,
+             "agents": {"k": {"label": "other-bots-secret-job",
+                              "model": "m", "status": "running",
+                              "started_at": 0.0, "ended_at": None,
+                              "tokens": 5, "prompt_sha": "p",
+                              "agent_id": None, "_prompt": "x",
+                              "transcript": None}}}
+    av._save_av_state({"otherbot:sess9": other})
+    monkeypatch.setattr(av, "_bot_key", lambda: "testbot")
+    out, code = dp.run_reserved_agents("")
+    assert code == 0
+    assert "other-bots-secret-job" not in out
+    assert "no agents" in out.lower()

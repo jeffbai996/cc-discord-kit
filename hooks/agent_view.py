@@ -176,6 +176,22 @@ def _save_av_state(state: dict) -> None:
 _AGENT_TOOLS = ("Agent", "Task")
 
 
+def _bot_key() -> str:
+    """Per-bot namespace for the shared state file. The fragserv bots
+    share one filesystem (and so one agent_view_state.json) — without
+    this prefix, one bot's !agents snapshot serves another bot's
+    registry. Reuses react_hook's _bot_id partitioning via narrate."""
+    try:
+        from narrate import _bot_id
+        return _bot_id()
+    except Exception:  # noqa: BLE001
+        return "bot"
+
+
+def _session_key(session_id: str) -> str:
+    return f"{_bot_key()}:{session_id}"
+
+
 def _agent_key(tool_input: dict) -> str:
     raw = (tool_input.get("description", "") + "\x00"
            + tool_input.get("prompt", ""))
@@ -231,8 +247,9 @@ def handle_pre(payload: dict) -> int:
     session = payload.get("session_id") or ""
     if not session:
         return 0
+    skey = _session_key(session)
     state = _load_av_state()
-    sess = state.setdefault(session, {
+    sess = state.setdefault(skey, {
         "chat_id": None,
         "transcript_path": payload.get("transcript_path"),
         "updater_pid": None,
@@ -261,8 +278,8 @@ def handle_pre(payload: dict) -> int:
         "_prompt": (tool_input.get("prompt") or "")[:200],
     }
     _save_av_state(state)
-    log(f"registered {key} ({sess['agents'][key]['label']}) in {session[:8]}")
-    _ensure_updater(session)
+    log(f"registered {key} ({sess['agents'][key]['label']}) in {skey}")
+    _ensure_updater(skey)
     return 0
 
 
@@ -274,7 +291,7 @@ def handle_post(payload: dict, failed: bool) -> int:
     resp = payload.get("tool_response") or {}
     session = payload.get("session_id") or ""
     state = _load_av_state()
-    sess = state.get(session)
+    sess = state.get(_session_key(session))
     if not sess:
         return 0
     base = _agent_key(tool_input)
@@ -290,7 +307,7 @@ def handle_post(payload: dict, failed: bool) -> int:
     if isinstance(resp, dict) and resp.get("agentId"):
         target["agent_id"] = resp["agentId"]
     _save_av_state(state)
-    log(f"settled {target['label']} -> {target['status']} in {session[:8]}")
+    log(f"settled {target['label']} -> {target['status']} in {_session_key(session)}")
     return 0
 
 
@@ -580,7 +597,7 @@ def handle_finalize(payload: dict) -> int:
     session = payload.get("session_id") or ""
     state = _load_av_state()
     changed = False
-    sess = state.get(session)
+    sess = state.get(_session_key(session))
     if sess:
         if not _pid_alive(sess.get("updater_pid")):
             sess["updater_pid"] = None
@@ -607,10 +624,12 @@ def render_snapshot(session: str | None = None) -> str:
     """One-shot panel render for !agents. Picks the given session, or
     the one with the most recent agent activity."""
     state = _load_av_state()
+    prefix = _bot_key() + ":"
+    mine = {k: v for k, v in state.items() if k.startswith(prefix)}
     if session:
-        sess = state.get(session)
+        sess = mine.get(session) or mine.get(prefix + session)
     else:
-        sess = max(state.values(), key=_sess_age_anchor, default=None)
+        sess = max(mine.values(), key=_sess_age_anchor, default=None)
     if not sess or not sess.get("agents"):
         return "no agents running this session"
     return render_panel(_bot_name(), list(sess["agents"].values()),

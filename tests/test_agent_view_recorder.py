@@ -24,12 +24,13 @@ def _isolate(tmp_path, monkeypatch):
     monkeypatch.setenv("CCDK_AGENT_VIEW_STATE", str(tmp_path / "s.json"))
     monkeypatch.setattr(av, "_resolve_chat_id", lambda payload: "111")
     monkeypatch.setattr(av, "_ensure_updater", lambda session: None)
+    monkeypatch.setattr(av, "_bot_key", lambda: "testbot")
 
 
 def test_pre_registers_running_agent(tmp_path, monkeypatch):
     _isolate(tmp_path, monkeypatch)
     av.handle_pre(_payload())
-    sess = av._load_av_state()["sess1"]
+    sess = av._load_av_state()["testbot:sess1"]
     (key, agent), = sess["agents"].items()
     assert agent["label"] == "bear case"
     assert agent["status"] == "running"
@@ -48,7 +49,7 @@ def test_parallel_identical_calls_get_suffixed_keys(tmp_path, monkeypatch):
     _isolate(tmp_path, monkeypatch)
     av.handle_pre(_payload())
     av.handle_pre(_payload())
-    keys = list(av._load_av_state()["sess1"]["agents"])
+    keys = list(av._load_av_state()["testbot:sess1"]["agents"])
     assert len(keys) == 2
     assert keys[1] == keys[0] + ":2"
 
@@ -58,7 +59,7 @@ def test_post_marks_done_and_links_agent_id(tmp_path, monkeypatch):
     av.handle_pre(_payload())
     av.handle_post(_payload(resp={"agentId": "abc123", "status": "completed"}),
                    failed=False)
-    (agent,) = av._load_av_state()["sess1"]["agents"].values()
+    (agent,) = av._load_av_state()["testbot:sess1"]["agents"].values()
     assert agent["status"] == "done"
     assert agent["agent_id"] == "abc123"
     assert agent["ended_at"] is not None
@@ -68,7 +69,7 @@ def test_post_failure_marks_failed(tmp_path, monkeypatch):
     _isolate(tmp_path, monkeypatch)
     av.handle_pre(_payload())
     av.handle_post(_payload(resp={}), failed=True)
-    (agent,) = av._load_av_state()["sess1"]["agents"].values()
+    (agent,) = av._load_av_state()["testbot:sess1"]["agents"].values()
     assert agent["status"] == "failed"
 
 
@@ -77,7 +78,7 @@ def test_post_settles_earliest_matching_running_agent(tmp_path, monkeypatch):
     av.handle_pre(_payload())
     av.handle_pre(_payload())  # identical parallel call
     av.handle_post(_payload(resp={"agentId": "a1"}), failed=False)
-    agents = list(av._load_av_state()["sess1"]["agents"].values())
+    agents = list(av._load_av_state()["testbot:sess1"]["agents"].values())
     assert [a["status"] for a in agents] == ["done", "running"]
 
 
@@ -92,5 +93,5 @@ def test_pre_records_explicit_model(tmp_path, monkeypatch):
     p = _payload()
     p["tool_input"]["model"] = "haiku"
     av.handle_pre(p)
-    (agent,) = av._load_av_state()["sess1"]["agents"].values()
+    (agent,) = av._load_av_state()["testbot:sess1"]["agents"].values()
     assert agent["model"] == "haiku"
