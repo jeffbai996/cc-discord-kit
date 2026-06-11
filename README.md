@@ -372,6 +372,65 @@ On branch main
 nothing to commit, working tree clean
 ```
 
+<a name="agent-panel-by-example"></a>
+#### Agent panel, by example
+
+When the session fans work out to subagents, the panel appears as a footer
+on the live tool-trace message and re-renders every ~5 seconds.
+
+**Mid-burst** — the spinner glyph advances one frame per update (◐ ◓ ◑ ◒),
+so you can tell at a glance the panel is alive, not frozen:
+
+```diff
++ ● Agent({"description":"research bear case","prompt":"Research the…)
++ ● Agent({"description":"audit api handlers","prompt":"Read every…)
++ ● Agent({"description":"verify margin math","prompt":"Re-derive…)
+```
+```
+◑ agents · mybot · 2 running · 1 done · 16.5k tok
+
+  ○  research bear case   sonnet  1m12s  12.3k
+  ○  audit api handlers   sonnet  1m12s   3.9k
+  ●  verify margin math   haiku     31s   4.2k
+```
+
+**Burst complete** — spinner drops, circles fill, the final summary
+freezes in place (`ticker`/`diffs`/`full` modes) or vanishes with the
+trace (`collapse`):
+
+```
+agents · mybot · 0 running · 3 done · 31.8k tok
+
+  ●  research bear case   sonnet  4m07s  21.4k
+  ●  audit api handlers   sonnet  3m44s   6.2k
+  ●  verify margin math   haiku     31s   4.2k
+```
+
+**Something went wrong** — a failed call renders `✗`, and an agent whose
+transcript goes silent for 15 minutes is marked lost rather than spinning
+forever:
+
+```
+◒ agents · mybot · 1 running · 2 done · 9.1k tok
+
+  ○  research bear case   sonnet  2m02s   7.7k
+  ✗  audit api handlers   sonnet    44s   1.4k
+  ✗  verify margin math   haiku    15m0s     0
+```
+
+**On demand** — `!agents` replies with a snapshot of the same panel, in
+any channel, any mode:
+
+> **you:** `!agents`
+> **bot:**
+> ```
+> agents · mybot · 1 running · 2 done · 28.7k tok
+>
+>   ○  research bear case   sonnet  3m21s  18.3k
+>   ●  audit api handlers   sonnet  3m44s   6.2k
+>   ●  verify margin math   haiku     31s   4.2k
+> ```
+
 ### Discord echo + guardrails
 
 - **`react_hook.py`** — emoji reaction signaller. Called with `--mode received|working|replied|terminal|memorized|compacted|crosscheck|notified` from various Claude Code hook events. State partitioned per-agent so multiple agents sharing a host don't clobber each other. Emoji map:
