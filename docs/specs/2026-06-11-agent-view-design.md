@@ -1,7 +1,7 @@
 # Agent View — subagent panel surfaced into Discord
 
 **Date:** 2026-06-11
-**Status:** approved (design reviewed in cl-7)
+**Status:** approved (design reviewed on Discord)
 **Repo:** cc-discord-kit
 
 ## Problem
@@ -28,7 +28,7 @@ Fenced code block (Discord pipe tables don't render; fixed-width alignment
 requires monospace):
 
 ```
-agents · claudsson · 2 running · 1 done · 25.6k tok
+agents · mybot · 2 running · 1 done · 25.6k tok
 
   ○  bear-case:capex      sonnet     1m12s    12.3k
   ○  bear-case:hbm        sonnet     1m12s     9.1k
