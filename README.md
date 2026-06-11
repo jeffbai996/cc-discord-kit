@@ -36,6 +36,16 @@ Your agent is running a task in the terminal. Here's the same turn, in your Disc
 - ● Bash(npm run deploy) FAILED
 ```
 
+**It shows its subagents** — when the agent fans work out, a live panel rides the bottom of the tool trace, edited in place every few seconds (spinner blinks per update, circles fill as agents land, tokens and elapsed from the real transcripts):
+
+```
+◐ agents · mybot · 2 running · 1 done · 16.5k tok
+
+  ○  research bear case   sonnet  1m12s  12.3k
+  ○  audit api handlers   sonnet  1m12s   3.9k
+  ●  verify margin math   haiku     31s   4.2k
+```
+
 **And you can talk back** — type a command in the channel, it runs on the host:
 
 > **you:** `!git log --oneline -3`
@@ -45,6 +55,8 @@ Your agent is running a task in the terminal. Here's the same turn, in your Disc
 > 8e98be7 feat(hooks): port tool-trace rework
 > 3b62f9f feat: CF Worker + KV backend
 > ```
+
+`!agents` works the same way — it replies with a snapshot of the panel above, in any mode, even when live surfacing is off.
 
 All of it is **opt-in per channel** and **off by default**. Pick how much you want to see — silent, just status emoji, narration, or full diffs.
 
@@ -314,6 +326,12 @@ The `hooks/` directory has a full set of Claude Code hooks. Wire any subset into
   - **`collapse`** — same as `diffs` while live (ticker + diffs + summaries), then the whole tool message is deleted at Stop. Symmetric with narrate's `collapse` — pair them for full visibility during the turn, clean channel after.
   - **`full`** — diffs + ` ``` ` fenced Bash stdout (secret-stripped).
   - **`off`** — disabled (default).
+
+- **`agent_view.py`** (PreToolUse / PostToolUse / PostToolUseFailure / Stop) — the **subagent panel**. PreToolUse on `Agent|Task` registers the spawn and forks a detached poller that tails each subagent's transcript (`<session>/subagents/agent-*.jsonl`) for tokens, model, and liveness, live-editing the panel every `CCDK_AGENT_VIEW_TICK` seconds (default 5) until every agent lands. Fully deterministic — hooks and a poller, no model in the display loop.
+
+  The panel renders as a **footer on the live tool-trace message**: Discord edits don't reorder messages, so it stays pinned at the visual bottom and migrates automatically when the trace rotates to a fresh segment. No trace to ride (quiet channel)? It posts standalone and reposts itself below anything that displaces it. Lifecycle follows the channel's `tools` mode — `off` no panel, `collapse` deleted with the trace at Stop, `ticker`/`diffs`/`full` frozen in place as the final summary.
+
+  Registry lives in `~/.local/state/cc-discord-kit/agent_view_state.json`; a silent running agent is marked lost after 15 min; the poller self-destructs after 2 h with a `stale` marker. `!agents` / `!agent` in any channel replies with a one-shot snapshot (reserved command — never hits the shell, works even in `off` mode).
 
 <a name="tool-trace-by-example"></a>
 #### Tool-trace, by example

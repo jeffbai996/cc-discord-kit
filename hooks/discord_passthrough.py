@@ -577,6 +577,33 @@ BUILTIN_SLASH: dict[str, "callable"] = {
 }
 
 
+# --------------------------- reserved commands --------------------------
+#
+# Bang-commands intercepted BEFORE the shell — they read bot-internal
+# state instead of executing. Currently: !agents / !agent (agent-view
+# snapshot). Works in every tools mode incl. `off` — explicit ask beats
+# channel policy.
+
+_RESERVED_AGENTS = ("agents", "agent")
+
+
+def is_reserved_agents_cmd(cmd: str) -> bool:
+    head = cmd.split(None, 1)[0].lower() if cmd.split() else ""
+    return head in _RESERVED_AGENTS
+
+
+def run_reserved_agents(args: str) -> tuple[str, int]:
+    """!agents [session-id] — render the agent-view panel snapshot."""
+    try:
+        import agent_view
+        out = agent_view.render_snapshot(args.strip() or None)
+    except Exception as e:  # noqa: BLE001 — never crash the hook
+        return (f"```\nagent-view error: {e}\n```", 1)
+    if not out.startswith("```"):
+        out = "```\n" + out + "\n```"
+    return (out, 0)
+
+
 def check_denylist(cmd: str) -> str | None:
     """Returns the denylist label if cmd matches a forbidden pattern."""
     for pattern, label in DENYLIST:
@@ -897,6 +924,17 @@ def main() -> int:
 
     if mode == "bash":
         cmd = parsed["cmd"]
+        # Reserved: !agents / !agent — agent-view snapshot, never hits the
+        # shell. Posted as a normal reply even when a terminal session is
+        # open (it's a status panel, not terminal output).
+        if is_reserved_agents_cmd(cmd):
+            head_args = cmd.split(None, 1)
+            out, code = run_reserved_agents(
+                head_args[1] if len(head_args) > 1 else "")
+            log(f"AGENTS chat={chat_id} exit={code}")
+            _discord_post_message(token, chat_id, out, reply_to=msg_id)
+            _emit_block("!agents snapshot posted")
+            return 0
         # Denylist check (raw shell only — slash commands are gated by registration).
         deny_label = check_denylist(cmd)
         if deny_label:

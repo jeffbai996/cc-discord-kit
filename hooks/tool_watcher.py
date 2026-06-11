@@ -164,8 +164,14 @@ TOOL_PREFIX_FINAL = "🔧 **Tool trace**\n"
 _TOOL_BLOCK_LEFT_PAD = "  "  # 2 cells from the left edge for readability
 
 
-def _tool_message_content(tool_buffer: str, prefix: str = TOOL_PREFIX) -> str:
+def _tool_message_content(tool_buffer: str, prefix: str = TOOL_PREFIX,
+                          panel: str = "") -> str:
     """Render the tool-trace message: prefix + ```diff``` fenced buffer.
+
+    `panel` (agent-view footer, its own fenced block) is appended after
+    the diff fence so it always sits at the visual bottom of the trace —
+    edits don't reorder messages, so the footer rides every re-render
+    and migrates automatically when the segment rotates.
 
     Lives as its OWN Discord message (not merged into narrate's
     placeholder) so the narration flow stays clean.
@@ -186,7 +192,7 @@ def _tool_message_content(tool_buffer: str, prefix: str = TOOL_PREFIX) -> str:
     with a single space).
     """
     if not tool_buffer:
-        return prefix
+        return prefix + ("\n" + panel if panel else "")
     # Colorizer chars (+/-/!/@) must stay at column 0 for Discord's diff
     # highlighter to fire. So we don't leading-pad those lines — but we
     # DO ensure there's a single space between the marker and the
@@ -210,7 +216,10 @@ def _tool_message_content(tool_buffer: str, prefix: str = TOOL_PREFIX) -> str:
             # space-prefixed). Apply the 2-cell pad.
             padded_lines.append(_TOOL_BLOCK_LEFT_PAD + ln)
     padded = "\n".join(padded_lines)
-    return prefix + "```diff\n" + padded + "\n```"
+    out = prefix + "```diff\n" + padded + "\n```"
+    if panel:
+        out += "\n" + panel
+    return out
 
 
 def _ticker_line(tool_name: str, tool_input: dict, errored: bool = False) -> str:
@@ -611,10 +620,11 @@ def _handle_tool_locked(
         turn["tool_buffer"] = ""
 
     # Append block to tool buffer; rotate on Discord cap
+    panel = turn.get("agent_panel", "")
     candidate_tools = (
         turn["tool_buffer"] + "\n" + block if turn["tool_buffer"] else block
     )
-    candidate_content = _tool_message_content(candidate_tools)
+    candidate_content = _tool_message_content(candidate_tools, panel=panel)
     if (
         turn.get("tool_msg_id")
         and len(candidate_content) > DISCORD_LIMIT
@@ -630,7 +640,7 @@ def _handle_tool_locked(
     else:
         turn["tool_buffer"] = candidate_tools
 
-    content = _tool_message_content(turn["tool_buffer"])
+    content = _tool_message_content(turn["tool_buffer"], panel=panel)
     if turn.get("tool_msg_id"):
         if discord_edit_message(token, chat_id, turn["tool_msg_id"], content):
             log(f"edited tool message for {turn_key}")

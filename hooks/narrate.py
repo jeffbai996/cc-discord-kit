@@ -757,6 +757,9 @@ def _handle_finalize_locked(payload: dict, transcript_path: str) -> int:
                 tool_msgs.append({
                     "msg_id": turn["tool_msg_id"],
                     "buffer": turn.get("tool_buffer", ""),
+                    # only the LIVE message carries the agent-view
+                    # footer; keep it through finalization in persist modes
+                    "panel": turn.get("agent_panel", ""),
                 })
             for tm in tool_msgs:
                 tm_id = tm.get("msg_id")
@@ -770,6 +773,8 @@ def _handle_finalize_locked(payload: dict, transcript_path: str) -> int:
                 final_content = "🔧 **Tool trace**\n"
                 if buf:
                     final_content += "```diff\n" + buf + "\n```"
+                if tm.get("panel"):
+                    final_content += "\n" + tm["panel"]
                 if discord_edit_message(token, chat_id, tm_id, final_content):
                     log(f"finalized tool message {tm_id} (turn {turn_key})")
 
