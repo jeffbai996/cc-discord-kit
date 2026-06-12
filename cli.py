@@ -493,6 +493,8 @@ def cmd_journal(args: argparse.Namespace) -> int:
         else:
             entries = (store.journal_recent(args.days)
                        if args.days else store.load_journal())
+        # Moments view excludes todos (use `todo list` for those).
+        entries = [e for e in entries if e.get("kind") != "todo"]
         _print_journal_list(entries)
         return 0
     if sub == "show":

@@ -258,6 +258,20 @@ def index():
 
 @app.route("/journal")
 def journal_index():
+    # Two views toggled by ?view=: 'moments' (timeline, default) and 'todos'
+    # (the open/done checklist). Both read journal.json; todos are kind=='todo'.
+    view = (request.args.get("view") or "moments").lower()
+    if view == "todos":
+        return render_template(
+            "journal.html",
+            view="todos",
+            entries=[],
+            open_todos=store.list_todos(status="open"),
+            done_todos=store.list_todos(status="done"),
+            days=0, q="", semantic=False,
+            semantic_available=False, semantic_scores={}, semantic_warning="",
+        )
+
     days = request.args.get("days", type=int) or 0
     q = (request.args.get("q") or "").strip()
     semantic = request.args.get("semantic", "").lower() in ("1", "true", "on", "yes")
@@ -290,9 +304,13 @@ def journal_index():
     else:
         entries = store.load_journal()
         entries = sorted(entries, key=lambda e: e.get("id", 0), reverse=True)
+    # Moments timeline excludes todos (they have their own ?view=todos).
+    entries = [e for e in entries if e.get("kind") != "todo"]
     return render_template(
         "journal.html",
+        view="moments",
         entries=entries,
+        open_todos=[], done_todos=[],
         days=days,
         q=q,
         semantic=semantic,
@@ -300,6 +318,15 @@ def journal_index():
         semantic_scores=semantic_scores,
         semantic_warning=semantic_warning,
     )
+
+
+@app.route("/journal/<int:entry_id>/todo", methods=["POST"])
+def journal_todo_status(entry_id: int):
+    """Click-to-complete (and reopen) for a todo from the /journal todo-view."""
+    status = (request.form.get("status") or "done").lower()
+    if status in store.TODO_STATUSES:
+        store.set_todo_status(entry_id, status, editor="web")
+    return redirect(url_for("journal_index", view="todos"))
 
 
 @app.route("/memory/<int:memory_id>", methods=["GET", "POST"])

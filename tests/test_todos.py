@@ -1,42 +1,33 @@
-"""Todos — memories of type 'todo', auto-injected, hidden from the durable index."""
+"""Todos — journal entries with kind='todo'. Share journal.json with moments;
+the /journal page toggles between the two views."""
 from __future__ import annotations
 
 
-def test_add_todo_is_a_type_todo_memory(fresh_store):
+def test_add_todo_is_kind_todo_in_journal(fresh_store):
     store, _ = fresh_store
     t = store.add_todo("water the plants", owner="dan", due="2026-07-01")
-    assert t["type"] == "todo" and t["status"] == "open"
+    assert t["kind"] == "todo" and t["status"] == "open"
     assert t["owner"] == "dan" and t["due"] == "2026-07-01"
-    # It IS a memory — shows up in the memory store (and thus the web page).
-    assert any(m["id"] == t["id"] for m in store.load_memories())
+    assert any(e["id"] == t["id"] for e in store.load_journal())
     assert [x["id"] for x in store.list_todos()] == [t["id"]]
 
 
-def test_todos_hidden_from_durable_index_but_facts_shown(fresh_store):
+def test_todos_excluded_from_moments_view(fresh_store):
     store, _ = fresh_store
     store.add_todo("a todo")
-    store.save_memory("a durable fact", type="project", name="fact")
-    idx = store.format_memories_index()
-    assert "fact" in idx
-    assert "a todo" not in idx          # type:todo not rendered in the index
+    store.add_journal("a moment")
+    block = store.format_journal_for_prompt(days=30)
+    assert "a moment" in block
+    assert "a todo" not in block          # toggle: moments timeline hides todos
 
 
-def test_todo_type_is_valid(fresh_store):
-    store, _ = fresh_store
-    assert "todo" in store.VALID_TYPES
-    # save_memory(type='todo') is accepted, not coerced to feedback
-    m = store.save_memory("x", type="todo")
-    assert m["type"] == "todo"
-
-
-def test_done_moves_out_of_open_but_stays_a_memory(fresh_store):
+def test_done_moves_out_of_open_but_stays_in_journal(fresh_store):
     store, _ = fresh_store
     t = store.add_todo("ship it")
-    assert store.set_todo_status(t["id"], "done", editor="fraggy") is True
+    assert store.set_todo_status(t["id"], "done", editor="web") is True
     assert store.list_todos(status="open") == []
     assert [x["id"] for x in store.list_todos(status="done")] == [t["id"]]
-    # Completed todo persists as a memory (history), not deleted.
-    done = next(m for m in store.load_memories() if m["id"] == t["id"])
+    done = next(e for e in store.load_journal() if e["id"] == t["id"])
     assert done["status"] == "done" and done.get("closed_ts")
 
 
@@ -50,10 +41,9 @@ def test_reopen_clears_closed(fresh_store):
     assert not reopened[0].get("closed_ts")
 
 
-def test_set_status_rejects_non_todo_memory(fresh_store):
+def test_set_status_rejects_non_todo_entry(fresh_store):
     store, _ = fresh_store
-    m = store.save_memory("a fact", type="project")
-    # status flips only apply to todos, never to a real memory
+    m = store.add_journal("just a moment")
     assert store.set_todo_status(m["id"], "done") is False
 
 
@@ -73,15 +63,17 @@ def test_owner_filter_includes_unassigned(fresh_store):
     assert other["id"] not in ids
 
 
-def test_prompt_block_renders_open_only(fresh_store):
+def test_prompt_block_is_idless_checklist_open_only(fresh_store):
     store, _ = fresh_store
     a = store.add_todo("alpha", owner="jeff", due="2026-06-12")
     b = store.add_todo("beta")
     store.set_todo_status(b["id"], "done")
     block = store.format_todos_for_prompt()
     assert "OPEN TODOS" in block
-    assert f"#{a['id']}" in block and "@jeff" in block and "due 2026-06-12" in block
-    assert f"#{b['id']}" not in block
+    assert "alpha" in block and "@jeff" in block and "due 2026-06-12" in block
+    assert "beta" not in block
+    # "no IDs": the checklist must not surface a #<id> token
+    assert f"#{a['id']}" not in block and "☐" in block
 
 
 def test_prompt_block_empty_when_no_open(fresh_store):
@@ -98,4 +90,4 @@ def test_prompt_block_caps_and_counts_overflow(fresh_store):
     block = store.format_todos_for_prompt(max_items=10)
     bullets = [l for l in block.splitlines() if l.strip().startswith("☐")]
     assert len(bullets) == 10
-    assert "+3 more open" in block
+    assert "+3 more" in block

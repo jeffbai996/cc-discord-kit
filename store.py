@@ -58,7 +58,7 @@ SHARED_DOC_FILE = os.path.join(DATA_DIR, "SHARED.md")
 MEMORIES_CAP = 500
 JOURNAL_CAP = 1000
 
-VALID_TYPES = {"user", "feedback", "project", "reference", "todo"}
+VALID_TYPES = {"user", "feedback", "project", "reference"}
 
 # Agents that operate outside the trusted set. They default-DENY: they only
 # see memories whose `bot` whitelist explicitly includes them. Trusted agents
@@ -669,12 +669,12 @@ def add_journal(text: str, *, source: str = "", actor: str = "",
 
 
 # ---- Todos -----------------------------------------------------------------
-# A to-do is a MEMORY of type 'todo' — not a separate store. This lets todos
-# inherit the entire memory surface for free (web /memories page, CLI, search,
-# history, visibility) with NO new page. status/owner/due ride as extra fields.
-# Open todos are AUTO-INJECTED per turn via format_todos_for_prompt; the
-# durable index (format_memories_index) only renders the 4 fact-types, so
-# todos never clutter it. done/cancelled todos remain as completed history.
+# A to-do is a JOURNAL entry with kind=="todo" — todos and moments share
+# journal.json, and the /journal page toggles between the two views. The `kind`
+# flag is the toggle: moments views filter todos OUT; only OPEN todos are
+# AUTO-INJECTED per turn as a checklist. Lifecycle: open -> done|cancelled
+# (reopen -> open). Entries keep an internal id (needed to mark one done), but
+# the todo views render as a checkbox checklist, not a numbered list.
 
 TODO_STATUSES = ("open", "done", "cancelled")
 
@@ -686,39 +686,36 @@ def load_todos() -> list[dict]:
 def add_todo(text: str, *, owner: str = "", due: str = "",
              actor: str = "", source: str = "cli",
              tags: list[str] | None = None) -> dict:
-    """Add an open to-do (a memory of type 'todo')."""
-    text = _strip_rendered_header(text.strip())
-    name = re.sub(r"\s+", " ", text)[:60].strip()
-    return _memories.add({
-        "type": "todo",
+    """Add an open to-do (a journal entry with kind='todo')."""
+    return _journal.add({
+        "kind": "todo",
         "status": "open",
         "owner": owner.strip(),
         "due": due.strip(),
-        "name": name,
-        "tags": list(tags) if tags else [],
-        "about": [],
-        "text": text,
-        "author": actor,
         "source": source,
+        "actor": actor,
+        "tags": list(tags) if tags else [],
+        "title": "",
+        "text": _strip_rendered_header(text.strip()),
     })
 
 
 def list_todos(*, status: str | None = "open",
                owner: str | None = None) -> list[dict]:
-    """To-do memories (type=='todo'), filtered by status and owner.
+    """To-do journal entries (kind=='todo'), filtered by status and owner.
 
     The owner filter is inclusive of unassigned todos (owner==""), so an
     owner-scoped view is "mine + squad-wide".
     """
     out = []
-    for m in load_memories():
-        if m.get("type") != "todo":
+    for e in load_journal():
+        if e.get("kind") != "todo":
             continue
-        if status is not None and m.get("status", "open") != status:
+        if status is not None and e.get("status", "open") != status:
             continue
-        if owner is not None and m.get("owner") and m.get("owner") != owner:
+        if owner is not None and e.get("owner") and e.get("owner") != owner:
             continue
-        out.append(m)
+        out.append(e)
     return out
 
 
@@ -726,15 +723,15 @@ def set_todo_status(entry_id: int, status: str, *, editor: str = "") -> bool:
     """Flip a todo's status (open/done/cancelled). Stamps closed_ts on close."""
     if status not in TODO_STATUSES:
         return False
-    m = next((x for x in load_memories() if x.get("id") == entry_id), None)
-    if not m or m.get("type") != "todo":
+    e = next((x for x in load_journal() if x.get("id") == entry_id), None)
+    if not e or e.get("kind") != "todo":
         return False
     fields: dict = {"status": status}
     fields["closed_ts"] = (datetime.now(timezone.utc).isoformat()
                            if status in ("done", "cancelled") else "")
     if editor:
         fields["last_editor"] = editor
-    return _memories.update(entry_id, fields)
+    return _journal.update(entry_id, fields)
 
 
 def format_todos_for_prompt(*, max_items: int = 10,
@@ -746,7 +743,10 @@ def format_todos_for_prompt(*, max_items: int = 10,
     todos = sorted(todos, key=lambda e: (e.get("due") or "~", e.get("id", 0)))
     extra = len(todos) - max_items
     todos = todos[:max_items]
-    lines = ["OPEN TODOS (close with `cc-discord-kit todo done <id>`):"]
+    # Checklist style — no visible ids (todos read as a list, not numbered
+    # entries). Close one via the /journal to-do view, or `cc-discord-kit todo
+    # list` to get the internal id then `todo done <id>`.
+    lines = ["OPEN TODOS:"]
     for t in todos:
         bits = []
         if t.get("owner"):
@@ -755,9 +755,9 @@ def format_todos_for_prompt(*, max_items: int = 10,
             bits.append(f"due {t['due']}")
         meta = (" " + " ".join(f"[{b}]" for b in bits)) if bits else ""
         text = re.sub(r"\s+", " ", t.get("text", "")).strip()[:100]
-        lines.append(f"  ☐ #{t['id']} {text}{meta}")
+        lines.append(f"  ☐ {text}{meta}")
     if extra > 0:
-        lines.append(f"  … +{extra} more open (`cc-discord-kit todo list`)")
+        lines.append(f"  … +{extra} more (`cc-discord-kit todo list`)")
     return "\n".join(lines)
 
 
@@ -812,7 +812,9 @@ def journal_recent(days: int = 7) -> list[dict]:
 
 
 def format_journal_for_prompt(days: int = 7) -> str:
-    entries = journal_recent(days)
+    # Todos live in journal.json too but surface via format_todos_for_prompt;
+    # keep them out of the moments timeline (this is the moments/todos toggle).
+    entries = [e for e in journal_recent(days) if e.get("kind") != "todo"]
     if not entries:
         return ""
     lines = [f"JOURNAL (pinned moments, last {days} days):"]

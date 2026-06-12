@@ -2,6 +2,54 @@
 {% block title %}journal ({{ entries|length }}){% endblock %}
 {% block content %}
 
+<div class="tabs" style="display:flex; gap:.5rem; margin-bottom:1rem;">
+  <a class="btn {{ 'btn-primary' if view != 'todos' else 'btn-ghost' }}"
+     href="{{ url_for('journal_index') }}">Moments</a>
+  <a class="btn {{ 'btn-primary' if view == 'todos' else 'btn-ghost' }}"
+     href="{{ url_for('journal_index', view='todos') }}">To-dos{% if open_todos %} ({{ open_todos|length }}){% endif %}</a>
+</div>
+
+{% if view == 'todos' %}
+<div class="todo-list">
+  {% if open_todos %}
+  <ul style="list-style:none; padding:0; margin:0;">
+    {% for t in open_todos %}
+    <li style="display:flex; align-items:center; gap:.5rem; padding:.45rem .2rem; border-bottom:1px solid var(--border);">
+      <form method="post" action="{{ url_for('journal_todo_status', entry_id=t.id) }}" style="margin:0;">
+        <input type="hidden" name="status" value="done">
+        <button type="submit" title="mark done"
+                style="cursor:pointer; background:none; border:1px solid var(--border); border-radius:4px; width:1.4rem; height:1.4rem; line-height:1;">☐</button>
+      </form>
+      <span style="flex:1;">{{ t.text }}</span>
+      {% if t.owner %}<span class="pill">@{{ t.owner }}</span>{% endif %}
+      {% if t.due %}<span class="pill">due {{ t.due }}</span>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <div class="empty"><h3>no open to-dos</h3>
+    <p>add one with <code>cc-discord-kit todo add "&lt;text&gt;"</code>.</p></div>
+  {% endif %}
+  {% if done_todos %}
+  <details style="margin-top:1.5rem;">
+    <summary style="cursor:pointer; color:var(--muted);">done ({{ done_todos|length }})</summary>
+    <ul style="list-style:none; padding:0; margin:.5rem 0 0;">
+      {% for t in done_todos %}
+      <li style="display:flex; align-items:center; gap:.5rem; padding:.35rem .2rem; opacity:.55;">
+        <form method="post" action="{{ url_for('journal_todo_status', entry_id=t.id) }}" style="margin:0;">
+          <input type="hidden" name="status" value="open">
+          <button type="submit" title="reopen"
+                  style="cursor:pointer; background:none; border:1px solid var(--border); border-radius:4px; width:1.4rem; height:1.4rem; line-height:1;">☑</button>
+        </form>
+        <span style="flex:1; text-decoration:line-through;">{{ t.text }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+  </details>
+  {% endif %}
+</div>
+{% else %}
+
 <form class="filters" method="get">
   <input type="search" name="q" placeholder="search journal…" value="{{ q }}" autocomplete="off">
   <input type="number" name="days" placeholder="last N days" value="{{ days or '' }}" min="0" style="width: 9rem;">
@@ -112,6 +160,7 @@
     <a class="btn btn-ghost" href="{{ url_for('journal_index') }}">clear filters</a>
   </p>
 </div>
+{% endif %}
 {% endif %}
 
 {% endblock %}
