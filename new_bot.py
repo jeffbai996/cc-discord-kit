@@ -96,7 +96,6 @@ def _build_hooks() -> dict[str, list[str]]:
         ],
         "PreToolUse": [
             _hook("paginate_guard.py"),
-            _hook("scrub_tags.py"),
             _hook("react_hook.py", "--mode", "working"),
         ],
         "PostToolUse": [

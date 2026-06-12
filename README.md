@@ -452,7 +452,6 @@ any channel, any mode:
 
 - **`paginate_guard.py`** (PreToolUse) — rejects Discord `reply` calls whose `text` would auto-paginate a fenced code block. Discord chunks at 2000 chars by character boundary, butchering backticks. The guard tells the model to write the body to `/tmp/<name>.md` and attach instead.
 
-- **`scrub_tags.py`** (PreToolUse) — mutator on `mcp__plugin_discord_discord__reply`. Strips `[MEMORY:...]`, `[MEMORY_EDIT:…]`, `[MEMORY_DELETE:…]`, `[JOURNAL:…]`, `[JOURNAL_DELETE:…]` tags from outbound `text` so they don't leak visibly into Discord. Stop hook still captures the tags from the transcript.
 
 - **`discord_mention_resolver.py`** (UserPromptSubmit) — resolves `<@USER_ID>` mentions in inbound Discord messages to human-readable names. Roster loaded from `~/.config/cc-discord-kit/discord_roster.json` (or `CCDK_DISCORD_ROSTER`). The running agent's own ID comes from `CCDK_BOT_DISCORD_USER_ID`. Injects a `Discord mentions resolved:` block; adds an explicit warning when this agent was addressed.
 
@@ -472,7 +471,6 @@ All log + state paths default under `~/.local/state/cc-discord-kit/`. Override i
 | `CCDK_TOOL_WATCHER_LOG` | tool_watcher | log path |
 | `CCDK_ECHO_GUARD_LOG` | discord_echo_guard | log path |
 | `CCDK_PAGINATE_GUARD_LOG` / `CCDK_PAGINATE_GUARD_LIMIT` | paginate_guard | log path + char limit (default 1900) |
-| `CCDK_SCRUB_TAGS_LOG` | scrub_tags | log path |
 | `CCDK_NOTIFY_HOOK_LOG` | notify_hook | log path |
 | `CCDK_STOP_HOOK_LOG` | react_hook (memorized mode) | stop-hook log path to scan for 💾 trigger |
 | `CCDK_REACT_HOOK_BIN` | notify_hook | path to react_hook entrypoint for `--mode notified` |
