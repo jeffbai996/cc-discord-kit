@@ -55,7 +55,7 @@ JOURNAL_FILE = os.path.join(DATA_DIR, "journal.json")
 # are atomic facts; SHARED.md is the coherent rulebook.
 SHARED_DOC_FILE = os.path.join(DATA_DIR, "SHARED.md")
 
-MEMORIES_CAP = 200
+MEMORIES_CAP = 500
 JOURNAL_CAP = 1000
 
 VALID_TYPES = {"user", "feedback", "project", "reference", "todo"}
