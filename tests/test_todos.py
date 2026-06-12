@@ -1,43 +1,43 @@
-"""Todos — a first-class primitive (todos.json), distinct from journal."""
+"""Todos — memories of type 'todo', auto-injected, hidden from the durable index."""
 from __future__ import annotations
 
 
-def test_add_todo_is_open_and_listed(fresh_store):
+def test_add_todo_is_a_type_todo_memory(fresh_store):
     store, _ = fresh_store
     t = store.add_todo("water the plants", owner="dan", due="2026-07-01")
-    assert t["status"] == "open"
+    assert t["type"] == "todo" and t["status"] == "open"
     assert t["owner"] == "dan" and t["due"] == "2026-07-01"
+    # It IS a memory — shows up in the memory store (and thus the web page).
+    assert any(m["id"] == t["id"] for m in store.load_memories())
     assert [x["id"] for x in store.list_todos()] == [t["id"]]
 
 
-def test_todos_live_in_own_store_not_journal(fresh_store):
+def test_todos_hidden_from_durable_index_but_facts_shown(fresh_store):
     store, _ = fresh_store
     store.add_todo("a todo")
-    store.add_journal("a moment")
-    # Distinct stores: todos never leak into the journal timeline, and the
-    # journal moment never shows up as a todo.
-    assert "a todo" not in store.format_journal_for_prompt(days=30)
-    assert [e["text"] for e in store.load_journal()] == ["a moment"]
-    assert [e["text"] for e in store.load_todos()] == ["a todo"]
+    store.save_memory("a durable fact", type="project", name="fact")
+    idx = store.format_memories_index()
+    assert "fact" in idx
+    assert "a todo" not in idx          # type:todo not rendered in the index
 
 
-def test_todos_have_independent_id_space(fresh_store):
+def test_todo_type_is_valid(fresh_store):
     store, _ = fresh_store
-    store.add_journal("moment one")
-    store.add_journal("moment two")
-    t = store.add_todo("first todo")
-    # Own store -> own id counter, starts at 1 regardless of journal ids.
-    assert t["id"] == 1
+    assert "todo" in store.VALID_TYPES
+    # save_memory(type='todo') is accepted, not coerced to feedback
+    m = store.save_memory("x", type="todo")
+    assert m["type"] == "todo"
 
 
-def test_done_moves_out_of_open(fresh_store):
+def test_done_moves_out_of_open_but_stays_a_memory(fresh_store):
     store, _ = fresh_store
     t = store.add_todo("ship it")
     assert store.set_todo_status(t["id"], "done", editor="fraggy") is True
     assert store.list_todos(status="open") == []
-    done = store.list_todos(status="done")
-    assert [x["id"] for x in done] == [t["id"]]
-    assert done[0].get("closed_ts")
+    assert [x["id"] for x in store.list_todos(status="done")] == [t["id"]]
+    # Completed todo persists as a memory (history), not deleted.
+    done = next(m for m in store.load_memories() if m["id"] == t["id"])
+    assert done["status"] == "done" and done.get("closed_ts")
 
 
 def test_reopen_clears_closed(fresh_store):
@@ -48,6 +48,13 @@ def test_reopen_clears_closed(fresh_store):
     reopened = store.list_todos(status="open")
     assert [x["id"] for x in reopened] == [t["id"]]
     assert not reopened[0].get("closed_ts")
+
+
+def test_set_status_rejects_non_todo_memory(fresh_store):
+    store, _ = fresh_store
+    m = store.save_memory("a fact", type="project")
+    # status flips only apply to todos, never to a real memory
+    assert store.set_todo_status(m["id"], "done") is False
 
 
 def test_invalid_status_rejected(fresh_store):

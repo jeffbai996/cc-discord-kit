@@ -49,7 +49,6 @@ def _resolve_data_dir() -> str:
 DATA_DIR = _resolve_data_dir()
 MEMORIES_FILE = os.path.join(DATA_DIR, "memories.json")
 JOURNAL_FILE = os.path.join(DATA_DIR, "journal.json")
-TODOS_FILE = os.path.join(DATA_DIR, "todos.json")
 # SHARED.md — a single freeform markdown doc of always-true rules every agent
 # boots with. Injected full-text by the SessionStart hook (same channel as
 # feedback memories), edited via the web UI. Distinct from memories: memories
@@ -58,9 +57,8 @@ SHARED_DOC_FILE = os.path.join(DATA_DIR, "SHARED.md")
 
 MEMORIES_CAP = 200
 JOURNAL_CAP = 1000
-TODOS_CAP = 500
 
-VALID_TYPES = {"user", "feedback", "project", "reference"}
+VALID_TYPES = {"user", "feedback", "project", "reference", "todo"}
 
 # Agents that operate outside the trusted set. They default-DENY: they only
 # see memories whose `bot` whitelist explicitly includes them. Trusted agents
@@ -642,7 +640,6 @@ def format_files_index(*, bot: str | None = None) -> str:
 # ─────────────────────────── journal ───────────────────────────
 
 _journal = JsonStore(JOURNAL_FILE, JOURNAL_CAP)
-_todos = JsonStore(TODOS_FILE, TODOS_CAP)
 
 
 def load_journal() -> list[dict]:
@@ -672,49 +669,56 @@ def add_journal(text: str, *, source: str = "", actor: str = "",
 
 
 # ---- Todos -----------------------------------------------------------------
-# A to-do is a FIRST-CLASS primitive — its own store (todos.json), distinct
-# from memories (durable facts) and journal (timeline of moments). The reason
-# it's separate, not a journal flavor: open todos are AUTO-INJECTED into every
-# turn as actionable reminders, which journal moments are not. Lifecycle:
-# open -> done|cancelled (reopen -> open). format_todos_for_prompt surfaces
-# only OPEN ones.
+# A to-do is a MEMORY of type 'todo' — not a separate store. This lets todos
+# inherit the entire memory surface for free (web /memories page, CLI, search,
+# history, visibility) with NO new page. status/owner/due ride as extra fields.
+# Open todos are AUTO-INJECTED per turn via format_todos_for_prompt; the
+# durable index (format_memories_index) only renders the 4 fact-types, so
+# todos never clutter it. done/cancelled todos remain as completed history.
 
 TODO_STATUSES = ("open", "done", "cancelled")
 
 
 def load_todos() -> list[dict]:
-    return _todos.load()
+    return list_todos(status=None)
 
 
 def add_todo(text: str, *, owner: str = "", due: str = "",
              actor: str = "", source: str = "cli",
              tags: list[str] | None = None) -> dict:
-    """Add an open to-do to todos.json."""
-    return _todos.add({
+    """Add an open to-do (a memory of type 'todo')."""
+    text = _strip_rendered_header(text.strip())
+    name = re.sub(r"\s+", " ", text)[:60].strip()
+    return _memories.add({
+        "type": "todo",
         "status": "open",
         "owner": owner.strip(),
         "due": due.strip(),
-        "source": source,
-        "actor": actor,
+        "name": name,
         "tags": list(tags) if tags else [],
-        "text": _strip_rendered_header(text.strip()),
+        "about": [],
+        "text": text,
+        "author": actor,
+        "source": source,
     })
 
 
 def list_todos(*, status: str | None = "open",
                owner: str | None = None) -> list[dict]:
-    """To-dos, optionally filtered by status and owner.
+    """To-do memories (type=='todo'), filtered by status and owner.
 
     The owner filter is inclusive of unassigned todos (owner==""), so an
     owner-scoped view is "mine + squad-wide".
     """
     out = []
-    for e in load_todos():
-        if status is not None and e.get("status", "open") != status:
+    for m in load_memories():
+        if m.get("type") != "todo":
             continue
-        if owner is not None and e.get("owner") and e.get("owner") != owner:
+        if status is not None and m.get("status", "open") != status:
             continue
-        out.append(e)
+        if owner is not None and m.get("owner") and m.get("owner") != owner:
+            continue
+        out.append(m)
     return out
 
 
@@ -722,14 +726,15 @@ def set_todo_status(entry_id: int, status: str, *, editor: str = "") -> bool:
     """Flip a todo's status (open/done/cancelled). Stamps closed_ts on close."""
     if status not in TODO_STATUSES:
         return False
+    m = next((x for x in load_memories() if x.get("id") == entry_id), None)
+    if not m or m.get("type") != "todo":
+        return False
     fields: dict = {"status": status}
-    if status in ("done", "cancelled"):
-        fields["closed_ts"] = datetime.now(timezone.utc).isoformat()
-    else:
-        fields["closed_ts"] = ""
+    fields["closed_ts"] = (datetime.now(timezone.utc).isoformat()
+                           if status in ("done", "cancelled") else "")
     if editor:
         fields["last_editor"] = editor
-    return _todos.update(entry_id, fields)
+    return _memories.update(entry_id, fields)
 
 
 def format_todos_for_prompt(*, max_items: int = 10,
