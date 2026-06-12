@@ -14,6 +14,7 @@ the SessionStart cache.
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import traceback
@@ -21,6 +22,7 @@ import traceback
 _MODULE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _MODULE_DIR)
 import store  # noqa: E402
+import semantic  # noqa: E402
 
 LOG_PATH = os.path.join(store.DATA_DIR, "user_prompt_hook.log")
 
@@ -45,8 +47,24 @@ def log(msg: str) -> None:
         pass
 
 
-def main() -> int:
+def _read_prompt() -> str:
+    """UserPromptSubmit passes {"prompt": ...} as JSON on stdin."""
     try:
+        raw = sys.stdin.read()
+        return (json.loads(raw).get("prompt", "") if raw.strip() else "") or ""
+    except Exception:
+        return ""
+
+
+def main() -> int:
+    prompt = _read_prompt()
+    try:
+        # Semantic recall first — the targeted, query-relevant content goes
+        # at the top where it gets attention; the index is the catalog below.
+        recall = semantic.format_recall(prompt)
+        if recall:
+            print(recall)
+            print()
         idx = store.format_memories_index(bot=_detect_bot())
         if idx:
             print(idx)
