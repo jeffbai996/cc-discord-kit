@@ -88,8 +88,9 @@ def test_publish_standalone_reposts_on_displacement(tmp_path, monkeypatch):
     monkeypatch.setattr(av, "_reply_count", lambda path: 0)
     av.publish_panel("sess1", sess, final=False, stale=False)
     assert sess["standalone_msg_id"] == "m1"
-    # a reply landed below the panel -> delete + resend
+    # a reply landed below the panel -> repost (cooldown expired)
     monkeypatch.setattr(av, "_reply_count", lambda path: 1)
+    sess["standalone_reposted_at"] = 0
     av.publish_panel("sess1", sess, final=False, stale=False)
     assert deleted == ["m1"]
     assert sess["standalone_msg_id"] == "m2"
@@ -115,3 +116,63 @@ def test_publish_footer_writes_panel_into_turn(tmp_path, monkeypatch):
     assert saved and saved[0][0] == "tk"
     assert edited and edited[0][0] == "tm1"
     assert edited[0][1].endswith(turn["agent_panel"])
+
+
+def test_failed_delete_is_retried_not_orphaned(tmp_path, monkeypatch):
+    """Displacement repost with a failing delete keeps the old card on
+    the sweep list and retries next tick (2026-06-11: failed deletes
+    left frozen duplicate cards in the channel)."""
+    monkeypatch.setenv("CCDK_AGENT_VIEW_STATE", str(tmp_path / "s.json"))
+    monkeypatch.setattr(av, "_tools_mode_for", lambda chat_id: "ticker")
+    monkeypatch.setattr(av, "_bot_token", lambda: "tok")
+    monkeypatch.setattr(av, "_narrate_turn_for", lambda sess: (None, None))
+    sent, deleted = [], []
+    monkeypatch.setattr(av, "_discord_send",
+                        lambda t, c, m: sent.append(m) or f"m{len(sent)}")
+    monkeypatch.setattr(av, "_discord_edit", lambda *a: True)
+    delete_ok = {"v": False}
+    monkeypatch.setattr(av, "_discord_delete",
+                        lambda t, c, mid: deleted.append(mid) or delete_ok["v"])
+    sess = _sess()
+    av._save_av_state({"sess1": sess})
+    monkeypatch.setattr(av, "_reply_count", lambda path: 0)
+    av.publish_panel("sess1", sess, final=False, stale=False)
+    assert sess["standalone_msg_id"] == "m1"
+    # displacement; delete FAILS -> m1 stays tracked
+    monkeypatch.setattr(av, "_reply_count", lambda path: 1)
+    sess["standalone_reposted_at"] = 0
+    av.publish_panel("sess1", sess, final=False, stale=False)
+    assert sess["standalone_msg_id"] == "m2"
+    assert "m1" in sess["panel_cards"]
+    # next tick: delete works -> orphan swept
+    delete_ok["v"] = True
+    av.publish_panel("sess1", sess, final=False, stale=False)
+    assert sess["panel_cards"] == ["m2"]
+
+
+def test_repost_cooldown_limits_churn(tmp_path, monkeypatch):
+    monkeypatch.setenv("CCDK_AGENT_VIEW_STATE", str(tmp_path / "s.json"))
+    monkeypatch.setattr(av, "_tools_mode_for", lambda chat_id: "ticker")
+    monkeypatch.setattr(av, "_bot_token", lambda: "tok")
+    monkeypatch.setattr(av, "_narrate_turn_for", lambda sess: (None, None))
+    sent = []
+    monkeypatch.setattr(av, "_discord_send",
+                        lambda t, c, m: sent.append(m) or f"m{len(sent)}")
+    edited = []
+    monkeypatch.setattr(av, "_discord_edit",
+                        lambda t, c, mid, m: edited.append(mid) or True)
+    monkeypatch.setattr(av, "_discord_delete", lambda *a: True)
+    sess = _sess()
+    av._save_av_state({"sess1": sess})
+    monkeypatch.setattr(av, "_reply_count", lambda path: 0)
+    av.publish_panel("sess1", sess, final=False, stale=False)
+    assert len(sent) == 1
+    # replies climb immediately after creation: cooldown blocks -> EDIT
+    monkeypatch.setattr(av, "_reply_count", lambda path: 5)
+    av.publish_panel("sess1", sess, final=False, stale=False)
+    assert len(sent) == 1
+    assert edited
+    # cooldown expired -> the displaced card reposts
+    sess["standalone_reposted_at"] = 0
+    av.publish_panel("sess1", sess, final=False, stale=False)
+    assert len(sent) == 2

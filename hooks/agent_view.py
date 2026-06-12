@@ -681,27 +681,68 @@ def publish_panel(session: str, sess: dict, final: bool,
         return
 
     # Standalone fallback — no trace message to ride.
+    #
+    # Card lifecycle is self-healing: every card we ever posted is
+    # tracked in sess["panel_cards"]; everything except the current
+    # card gets delete-retried every tick. A single failed delete
+    # (rate limit, transient 5xx) therefore can't orphan a frozen
+    # duplicate — seen live 2026-06-11 when each owner reply triggered
+    # a delete+repost cycle and one delete silently failed.
     replies = _reply_count(sess.get("transcript_path") or "")
-    if (sess.get("standalone_msg_id")
-            and replies > sess.get("standalone_replies_at_create", 0)):
-        # something landed below the panel: delete + repost at bottom
-        _discord_delete(token, chat_id, sess["standalone_msg_id"])
-        _update_sess_fields(session, sess, standalone_msg_id=None)
-    if not sess.get("standalone_msg_id"):
-        # last-moment re-read: another updater may have created the card
-        # between our state load and now — edit it instead of duplicating
-        fresh = _load_av_state().get(session) or {}
-        if fresh.get("standalone_msg_id"):
-            sess["standalone_msg_id"] = fresh["standalone_msg_id"]
-            sess["standalone_replies_at_create"] = fresh.get(
-                "standalone_replies_at_create", 0)
-    if sess.get("standalone_msg_id"):
-        _discord_edit(token, chat_id, sess["standalone_msg_id"], panel)
-    else:
+    # last-moment re-read: pick up a card another process just created
+    fresh = _load_av_state().get(session) or {}
+    if fresh.get("standalone_msg_id") and not sess.get("standalone_msg_id"):
+        sess["standalone_msg_id"] = fresh["standalone_msg_id"]
+        sess["standalone_replies_at_create"] = fresh.get(
+            "standalone_replies_at_create", 0)
+    sess.setdefault("panel_cards", fresh.get("panel_cards", []))
+
+    displaced = (sess.get("standalone_msg_id")
+                 and replies > sess.get("standalone_replies_at_create", 0)
+                 and now - sess.get("standalone_reposted_at", 0)
+                 > _REPOST_COOLDOWN)
+    if displaced or not sess.get("standalone_msg_id"):
+        # post the replacement FIRST (never a zero-card window), then
+        # retire the old card via the sweep list
         msg_id = _discord_send(token, chat_id, panel)
         if msg_id:
-            _update_sess_fields(session, sess, standalone_msg_id=msg_id,
-                                standalone_replies_at_create=replies)
+            old_id = sess.get("standalone_msg_id")
+            cards = [c for c in sess.get("panel_cards", []) if c != msg_id]
+            cards.append(msg_id)
+            if old_id and old_id not in cards:
+                cards.append(old_id)
+            _update_sess_fields(
+                session, sess, standalone_msg_id=msg_id,
+                standalone_replies_at_create=replies,
+                standalone_reposted_at=now, panel_cards=cards)
+    else:
+        _discord_edit(token, chat_id, sess["standalone_msg_id"], panel)
+    _sweep_cards(session, sess, token, chat_id)
+
+
+_REPOST_COOLDOWN = 10  # min seconds between displacement reposts
+
+
+def _sweep_cards(session: str, sess: dict, token: str,
+                 chat_id: str) -> None:
+    """Delete every tracked card except the current one; failures stay
+    on the list and retry next tick."""
+    current = sess.get("standalone_msg_id")
+    cards = sess.get("panel_cards") or []
+    keep = []
+    changed = False
+    for mid in cards:
+        if mid == current:
+            keep.append(mid)
+            continue
+        if _discord_delete(token, chat_id, mid):
+            log(f"swept orphan panel card {mid}")
+            changed = True
+        else:
+            log(f"orphan card delete FAILED for {mid}; will retry")
+            keep.append(mid)
+    if changed or len(keep) != len(cards):
+        _update_sess_fields(session, sess, panel_cards=keep)
 
 
 # ----------------------------------------------------- finalize/snapshot
@@ -726,13 +767,19 @@ def handle_finalize(payload: dict) -> int:
         if not _pid_alive(sess.get("updater_pid")):
             sess["updater_pid"] = None
             changed = True
-        msg_id = sess.get("standalone_msg_id")
         chat_id = sess.get("chat_id")
-        if msg_id and chat_id and _tools_mode_for(chat_id) == "collapse":
+        cards = list(sess.get("panel_cards") or [])
+        if sess.get("standalone_msg_id") and \
+                sess["standalone_msg_id"] not in cards:
+            cards.append(sess["standalone_msg_id"])
+        if cards and chat_id and _tools_mode_for(chat_id) == "collapse":
             token = _bot_token()
-            if token and _discord_delete(token, chat_id, msg_id):
-                log(f"deleted standalone panel {msg_id} (collapse)")
+            if token:
+                for mid in cards:
+                    if _discord_delete(token, chat_id, mid):
+                        log(f"deleted standalone panel {mid} (collapse)")
             sess["standalone_msg_id"] = None
+            sess["panel_cards"] = []
             changed = True
     now = time.time()
     for key in [k for k, s in state.items()
