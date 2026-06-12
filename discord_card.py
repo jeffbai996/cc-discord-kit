@@ -50,7 +50,13 @@ def _truncate_body(text: str, lim: int = CARD_BODY_LIMIT) -> str:
     text = _sanitize_fence(text)
     if len(text) <= lim:
         return text
-    return text[: lim - 1].rstrip() + "…"
+    cut = text[: lim - 1]
+    # Drop a trailing partial word so we don't slice mid-token. Skip only if
+    # that would discard a large tail — a pathological space-less run.
+    sp = cut.rsplit(" ", 1)
+    if len(sp) == 2 and len(sp[0]) >= len(cut) * 0.6:
+        cut = sp[0]
+    return cut.rstrip() + "…"
 
 
 _HUNK_RE = re.compile(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@")
@@ -75,6 +81,12 @@ def _diff_body(before_text: str, after_text: str,
     before_text = _sanitize_fence(before_text or "")
     after_text = _sanitize_fence(after_text or "")
     if before_text == after_text:
+        return None
+    # A line-diff is meaningless for single-paragraph bodies: the whole entry
+    # is one "line", so unified_diff renders it as one giant +/- pair that
+    # truncates into an unreadable wall. Fall back to a clean body preview
+    # when neither side is multi-line.
+    if before_text.count("\n") <= 1 and after_text.count("\n") <= 1:
         return None
     diff_lines = list(difflib.unified_diff(
         before_text.splitlines(),
