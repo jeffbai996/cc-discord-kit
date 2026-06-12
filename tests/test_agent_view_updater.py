@@ -93,3 +93,51 @@ def test_tick_never_loses_agent_on_stale_transcript(monkeypatch):
     av.tick_agents(agents, subagents_dir="/tmp/none",
                    now=10_000.0 + av._LOST_AFTER + 60)
     assert agents["k"]["status"] == "running"
+
+
+def _async_agent(aid="bg1"):
+    a = _running()
+    a["async"] = True
+    a["agent_id"] = aid
+    return a
+
+
+def test_async_completions_parses_notifications(tmp_path):
+    t = tmp_path / "parent.jsonl"
+    t.write_text(
+        '{"type":"user","message":{"role":"user","content":'
+        '"<task-notification>\\n<task-id>bg1</task-id>\\n'
+        '<status>completed</status>\\n</task-notification>"}}\n'
+        '{"type":"user","message":{"role":"user","content":'
+        '"<task-notification>\\n<task-id>bg2</task-id>\\n'
+        '<status>failed</status>\\n</task-notification>"}}\n')
+    got = av._async_completions(str(t), ["bg1", "bg2", "bg3"])
+    assert got == {"bg1": "done", "bg2": "failed"}
+
+
+def test_settle_async_marks_done(tmp_path):
+    t = tmp_path / "parent.jsonl"
+    t.write_text('{"c":"<task-id>bg1</task-id> <status>completed</status>"}\n')
+    sess = {"transcript_path": str(t), "agents": {"k": _async_agent("bg1")}}
+    assert av.settle_async(sess, now=500.0) is True
+    assert sess["agents"]["k"]["status"] == "done"
+    assert sess["agents"]["k"]["ended_at"] == 500.0
+
+
+def test_settle_async_noop_without_notification(tmp_path):
+    t = tmp_path / "parent.jsonl"
+    t.write_text('{"c":"nothing here"}\n')
+    sess = {"transcript_path": str(t), "agents": {"k": _async_agent("bg1")}}
+    assert av.settle_async(sess, now=500.0) is False
+    assert sess["agents"]["k"]["status"] == "running"
+
+
+def test_tick_never_loses_async_agent(monkeypatch):
+    agents = {"k": _async_agent()}
+    monkeypatch.setattr(av, "match_transcripts", lambda d, a: None)
+    monkeypatch.setattr(av, "read_transcript_stats",
+                        lambda p: {"tokens": 5, "model": "m",
+                                   "last_ts": 100.0})
+    av.tick_agents(agents, subagents_dir="/tmp/none",
+                   now=100.0 + av._LOST_AFTER + 9999)
+    assert agents["k"]["status"] == "running"  # notification path owns it

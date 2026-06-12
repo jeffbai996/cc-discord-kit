@@ -21,6 +21,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import sys
 import time
 from datetime import datetime
@@ -305,10 +306,22 @@ def handle_post(payload: dict, failed: bool) -> int:
             break
     if target is None:
         return 0
+    if not failed and isinstance(resp, dict) and (
+            resp.get("isAsync") or resp.get("status") == "async_launched"):
+        # run_in_background: this PostToolUse only means "launched" — the
+        # agent is still working. Record the definitive agentId, flag it
+        # async, and let the updater settle it when the harness drops a
+        # <task-notification> into the parent transcript.
+        target["async"] = True
+        if resp.get("agentId"):
+            target["agent_id"] = resp["agentId"]
+        _save_av_state(state)
+        log(f"async launch {target['label']} in {_session_key(session)}")
+        return 0
     # the harness's completion event is ground truth — it overrides a
     # provisional lost-marking from the updater
     target["status"] = "failed" if failed else "done"
-    target["ended_at"] = time.time()
+    target["ended_at"] = max(time.time(), target.get("started_at") or 0)
     if isinstance(resp, dict) and resp.get("agentId"):
         target["agent_id"] = resp["agentId"]
     _save_av_state(state)
@@ -338,13 +351,62 @@ def tick_agents(agents: dict, subagents_dir: str, now: float) -> None:
             a["tokens"] = stats["tokens"]
         if stats["model"] and not a.get("model"):
             a["model"] = stats["model"]
-        if (a["status"] == "running" and stats["last_ts"]
+        if (a["status"] == "running" and not a.get("async")
+                and stats["last_ts"]
                 and stats["last_ts"] >= (a.get("started_at") or 0)
                 and now - stats["last_ts"] > _LOST_AFTER):
             # last_ts < started_at would mean we linked a stale file —
             # that's a matching bug, not a silent agent; never "lose" it
             a["status"] = "lost"
             a["ended_at"] = stats["last_ts"]
+
+
+def _async_completions(transcript_path: str, agent_ids: list,
+                       tail_bytes: int = 262144) -> dict:
+    """Scan the parent transcript's tail for <task-notification> records.
+    Background agents have no completion hook — the harness instead
+    injects a notification with the task-id (== agentId) and status into
+    the parent session. Returns {agent_id: "done"|"failed"}."""
+    out = {}
+    if not agent_ids:
+        return out
+    try:
+        size = os.path.getsize(transcript_path)
+        with open(transcript_path, "r", encoding="utf-8",
+                  errors="replace") as f:
+            if size > tail_bytes:
+                f.seek(size - tail_bytes)
+                f.readline()  # drop the partial first line
+            text = f.read()
+    except OSError:
+        return out
+    for aid in agent_ids:
+        idx = text.find(f"<task-id>{aid}</task-id>")
+        if idx == -1:
+            continue
+        m = re.search(r"<status>(\w+)</status>", text[idx:idx + 2000])
+        status = m.group(1) if m else "completed"
+        out[aid] = "done" if status in ("completed", "done",
+                                        "success") else "failed"
+    return out
+
+
+def settle_async(sess: dict, now: float) -> bool:
+    """Settle async agents whose completion notification has landed in
+    the parent transcript. Returns True if anything changed."""
+    pending = {a["agent_id"]: a for a in sess.get("agents", {}).values()
+               if a.get("async") and a["status"] == "running"
+               and a.get("agent_id")}
+    if not pending:
+        return False
+    changed = False
+    found = _async_completions(sess.get("transcript_path") or "",
+                               list(pending))
+    for aid, status in found.items():
+        pending[aid]["status"] = status
+        pending[aid]["ended_at"] = now
+        changed = True
+    return changed
 
 
 def _subagents_dir(transcript_path: str) -> str:
@@ -423,6 +485,7 @@ def run_updater(session: str) -> None:
         now = time.time()
         tick_agents(sess["agents"],
                     _subagents_dir(sess.get("transcript_path") or ""), now)
+        settle_async(sess, now)
         _save_av_state(state)
         stale = now > deadline
         final = all_terminal(sess["agents"])

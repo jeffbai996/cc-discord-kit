@@ -109,3 +109,18 @@ def test_post_overrides_provisional_lost(tmp_path, monkeypatch):
     av.handle_post(_payload(resp={"agentId": "a1"}), failed=False)
     (agent,) = av._load_av_state()["testbot:sess1"]["agents"].values()
     assert agent["status"] == "done"
+
+
+def test_post_async_launch_keeps_running(tmp_path, monkeypatch):
+    """run_in_background: PostToolUse means 'launched', not 'finished' —
+    the agent stays running (2026-06-11: a bot's background agents were
+    marked done after 2s and the panel froze)."""
+    _isolate(tmp_path, monkeypatch)
+    av.handle_pre(_payload())
+    av.handle_post(_payload(resp={"agentId": "bg1", "isAsync": True,
+                                  "status": "async_launched"}),
+                   failed=False)
+    (agent,) = av._load_av_state()["testbot:sess1"]["agents"].values()
+    assert agent["status"] == "running"
+    assert agent["async"] is True
+    assert agent["agent_id"] == "bg1"
