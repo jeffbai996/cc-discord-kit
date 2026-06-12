@@ -493,6 +493,8 @@ def cmd_journal(args: argparse.Namespace) -> int:
         else:
             entries = (store.journal_recent(args.days)
                        if args.days else store.load_journal())
+        # Moments view excludes todos (see `journal todos` for those).
+        entries = [e for e in entries if e.get("kind") != "todo"]
         _print_journal_list(entries)
         return 0
     if sub == "show":
@@ -509,6 +511,14 @@ def cmd_journal(args: argparse.Namespace) -> int:
         return 0
     if sub == "add":
         tags = _parse_csv(args.tags)
+        if getattr(args, "todo", False):
+            e = store.add_todo(args.text, owner=getattr(args, "owner", ""),
+                               due=getattr(args, "due", ""),
+                               actor=args.actor or "", source=args.source or "cli",
+                               tags=tags)
+            print(f"Added to-do #{e['id']}")
+            _post_card_if_discord({"kind": "todo_added", "entry": e}, args)
+            return 0
         kwargs = dict(source=args.source or "cli",
                       actor=args.actor or "", tags=tags)
         # Optional heading — only forwarded if the store build declares it.
@@ -517,6 +527,32 @@ def cmd_journal(args: argparse.Namespace) -> int:
         e = store.add_journal(args.text, **kwargs)
         print(f"Pinned #{e['id']}")
         _post_card_if_discord({"kind": "journal_added", "entry": e}, args)
+        return 0
+    if sub == "todos":
+        status = None if args.status == "all" else args.status
+        todos = store.list_todos(status=status, owner=getattr(args, "owner", None))
+        if not todos:
+            print("(no to-dos)")
+            return 0
+        for t in todos:
+            mark = {"open": "☐", "done": "☑", "cancelled": "✗"}.get(
+                t.get("status", "open"), "☐")
+            owner = f" @{t['owner']}" if t.get("owner") else ""
+            due = f" (due {t['due']})" if t.get("due") else ""
+            print(f"{mark} #{t['id']}{owner}{due}  {t.get('text', '').splitlines()[0][:100]}")
+        return 0
+    if sub in ("done", "cancel", "reopen"):
+        target = {"done": "done", "cancel": "cancelled", "reopen": "open"}[sub]
+        e = next((x for x in store.load_journal() if x["id"] == args.id), None)
+        if not e or e.get("kind") != "todo":
+            print(f"To-do #{args.id} not found", file=sys.stderr)
+            return 1
+        if not store.set_todo_status(args.id, target):
+            print(f"To-do #{args.id} update failed", file=sys.stderr)
+            return 1
+        print(f"To-do #{args.id} → {target}")
+        _post_card_if_discord(
+            {"kind": "todo_status", "id": args.id, "status": target}, args)
         return 0
     if sub == "edit":
         before = _find_journal(args.id)
@@ -940,7 +976,27 @@ def build_parser() -> argparse.ArgumentParser:
     j_add.add_argument("--actor", default="")
     j_add.add_argument("--tags", default="")
     j_add.add_argument("--title", default="", help="optional short heading")
+    j_add.add_argument("--todo", action="store_true",
+                       help="add as an open to-do (kind=todo) instead of a moment")
+    j_add.add_argument("--owner", default="",
+                       help="(todo) who owns it — an agent or person")
+    j_add.add_argument("--due", default="",
+                       help="(todo) due date, free-form (e.g. 2026-07-01)")
     _add_discord_flags(j_add)
+
+    # Todos: journal entries with kind=todo. `todos` lists open ones, `done`/
+    # `cancel`/`reopen` flip status. Moments and todos share journal.json.
+    j_todos = jsub.add_parser("todos", help="list to-dos (open by default)")
+    j_todos.add_argument("--status", default="open",
+                         choices=["open", "done", "cancelled", "all"])
+    j_todos.add_argument("--owner", default=None,
+                         help="filter to an owner (incl. unassigned)")
+    for _name, _help in (("done", "mark a to-do done"),
+                         ("cancel", "cancel a to-do"),
+                         ("reopen", "reopen a to-do")):
+        _p = jsub.add_parser(_name, help=_help)
+        _p.add_argument("id", type=int)
+        _add_discord_flags(_p)
 
     j_edit = jsub.add_parser("edit")
     j_edit.add_argument("id", type=int)

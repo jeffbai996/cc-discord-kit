@@ -69,6 +69,10 @@ def main() -> int:
         if idx:
             print(idx)
             print()
+        todos = store.format_todos_for_prompt()
+        if todos:
+            print(todos)
+            print()
         jou = store.format_journal_for_prompt(days=1)
         if jou:
             print(jou)

@@ -668,6 +668,90 @@ def add_journal(text: str, *, source: str = "", actor: str = "",
     })
 
 
+# ---- Todos -----------------------------------------------------------------
+# A to-do is a journal entry with kind=="todo" + a lifecycle status. It lives
+# in journal.json so it shares storage/cap/history with moments; the `kind`
+# flag is the toggle — moments views filter todos OUT, and only OPEN todos are
+# surfaced as per-turn reminders. Memory is for durable facts; todos are
+# mutable and completable, which is why they don't belong there.
+
+TODO_STATUSES = ("open", "done", "cancelled")
+
+
+def add_todo(text: str, *, owner: str = "", due: str = "",
+             actor: str = "", source: str = "cli",
+             tags: list[str] | None = None) -> dict:
+    """Add a to-do (journal entry, kind='todo', status='open')."""
+    return _journal.add({
+        "kind": "todo",
+        "status": "open",
+        "owner": owner.strip(),
+        "due": due.strip(),
+        "source": source,
+        "actor": actor,
+        "tags": list(tags) if tags else [],
+        "title": "",
+        "text": _strip_rendered_header(text.strip()),
+    })
+
+
+def list_todos(*, status: str | None = "open",
+               owner: str | None = None) -> list[dict]:
+    """Todos (kind=='todo'), optionally filtered by status and owner.
+
+    The owner filter is inclusive of unassigned todos (owner==""), so an
+    owner-scoped view is "mine + squad-wide".
+    """
+    out = []
+    for e in load_journal():
+        if e.get("kind") != "todo":
+            continue
+        if status is not None and e.get("status", "open") != status:
+            continue
+        if owner is not None and e.get("owner") and e.get("owner") != owner:
+            continue
+        out.append(e)
+    return out
+
+
+def set_todo_status(entry_id: int, status: str, *, editor: str = "") -> bool:
+    """Flip a todo's status (open/done/cancelled). Stamps closed_ts on close."""
+    if status not in TODO_STATUSES:
+        return False
+    fields: dict = {"status": status}
+    if status in ("done", "cancelled"):
+        fields["closed_ts"] = datetime.now(timezone.utc).isoformat()
+    else:
+        fields["closed_ts"] = ""
+    if editor:
+        fields["last_editor"] = editor
+    return _journal.update(entry_id, fields)
+
+
+def format_todos_for_prompt(*, max_items: int = 10,
+                            owner: str | None = None) -> str:
+    """Compact OPEN-todos block for the per-turn hook. "" if none."""
+    todos = list_todos(status="open", owner=owner)
+    if not todos:
+        return ""
+    todos = sorted(todos, key=lambda e: (e.get("due") or "~", e.get("id", 0)))
+    extra = len(todos) - max_items
+    todos = todos[:max_items]
+    lines = ["OPEN TODOS (close with `cc-discord-kit journal done <id>`):"]
+    for t in todos:
+        bits = []
+        if t.get("owner"):
+            bits.append(f"@{t['owner']}")
+        if t.get("due"):
+            bits.append(f"due {t['due']}")
+        meta = (" " + " ".join(f"[{b}]" for b in bits)) if bits else ""
+        text = re.sub(r"\s+", " ", t.get("text", "")).strip()[:100]
+        lines.append(f"  ☐ #{t['id']} {text}{meta}")
+    if extra > 0:
+        lines.append(f"  … +{extra} more open (`cc-discord-kit journal todos`)")
+    return "\n".join(lines)
+
+
 def remove_journal(entry_id: int) -> bool:
     return _journal.remove(entry_id)
 
@@ -719,7 +803,9 @@ def journal_recent(days: int = 7) -> list[dict]:
 
 
 def format_journal_for_prompt(days: int = 7) -> str:
-    entries = journal_recent(days)
+    # Todos are surfaced separately via format_todos_for_prompt — keep them
+    # out of the moments timeline (this is the journal/todo toggle).
+    entries = [e for e in journal_recent(days) if e.get("kind") != "todo"]
     if not entries:
         return ""
     lines = [f"JOURNAL (pinned moments, last {days} days):"]
