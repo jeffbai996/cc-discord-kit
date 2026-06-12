@@ -49,6 +49,7 @@ def _resolve_data_dir() -> str:
 DATA_DIR = _resolve_data_dir()
 MEMORIES_FILE = os.path.join(DATA_DIR, "memories.json")
 JOURNAL_FILE = os.path.join(DATA_DIR, "journal.json")
+TODOS_FILE = os.path.join(DATA_DIR, "todos.json")
 # SHARED.md — a single freeform markdown doc of always-true rules every agent
 # boots with. Injected full-text by the SessionStart hook (same channel as
 # feedback memories), edited via the web UI. Distinct from memories: memories
@@ -57,6 +58,7 @@ SHARED_DOC_FILE = os.path.join(DATA_DIR, "SHARED.md")
 
 MEMORIES_CAP = 200
 JOURNAL_CAP = 1000
+TODOS_CAP = 500
 
 VALID_TYPES = {"user", "feedback", "project", "reference"}
 
@@ -640,6 +642,7 @@ def format_files_index(*, bot: str | None = None) -> str:
 # ─────────────────────────── journal ───────────────────────────
 
 _journal = JsonStore(JOURNAL_FILE, JOURNAL_CAP)
+_todos = JsonStore(TODOS_FILE, TODOS_CAP)
 
 
 def load_journal() -> list[dict]:
@@ -669,43 +672,44 @@ def add_journal(text: str, *, source: str = "", actor: str = "",
 
 
 # ---- Todos -----------------------------------------------------------------
-# A to-do is a journal entry with kind=="todo" + a lifecycle status. It lives
-# in journal.json so it shares storage/cap/history with moments; the `kind`
-# flag is the toggle — moments views filter todos OUT, and only OPEN todos are
-# surfaced as per-turn reminders. Memory is for durable facts; todos are
-# mutable and completable, which is why they don't belong there.
+# A to-do is a FIRST-CLASS primitive — its own store (todos.json), distinct
+# from memories (durable facts) and journal (timeline of moments). The reason
+# it's separate, not a journal flavor: open todos are AUTO-INJECTED into every
+# turn as actionable reminders, which journal moments are not. Lifecycle:
+# open -> done|cancelled (reopen -> open). format_todos_for_prompt surfaces
+# only OPEN ones.
 
 TODO_STATUSES = ("open", "done", "cancelled")
+
+
+def load_todos() -> list[dict]:
+    return _todos.load()
 
 
 def add_todo(text: str, *, owner: str = "", due: str = "",
              actor: str = "", source: str = "cli",
              tags: list[str] | None = None) -> dict:
-    """Add a to-do (journal entry, kind='todo', status='open')."""
-    return _journal.add({
-        "kind": "todo",
+    """Add an open to-do to todos.json."""
+    return _todos.add({
         "status": "open",
         "owner": owner.strip(),
         "due": due.strip(),
         "source": source,
         "actor": actor,
         "tags": list(tags) if tags else [],
-        "title": "",
         "text": _strip_rendered_header(text.strip()),
     })
 
 
 def list_todos(*, status: str | None = "open",
                owner: str | None = None) -> list[dict]:
-    """Todos (kind=='todo'), optionally filtered by status and owner.
+    """To-dos, optionally filtered by status and owner.
 
     The owner filter is inclusive of unassigned todos (owner==""), so an
     owner-scoped view is "mine + squad-wide".
     """
     out = []
-    for e in load_journal():
-        if e.get("kind") != "todo":
-            continue
+    for e in load_todos():
         if status is not None and e.get("status", "open") != status:
             continue
         if owner is not None and e.get("owner") and e.get("owner") != owner:
@@ -725,7 +729,7 @@ def set_todo_status(entry_id: int, status: str, *, editor: str = "") -> bool:
         fields["closed_ts"] = ""
     if editor:
         fields["last_editor"] = editor
-    return _journal.update(entry_id, fields)
+    return _todos.update(entry_id, fields)
 
 
 def format_todos_for_prompt(*, max_items: int = 10,
@@ -737,7 +741,7 @@ def format_todos_for_prompt(*, max_items: int = 10,
     todos = sorted(todos, key=lambda e: (e.get("due") or "~", e.get("id", 0)))
     extra = len(todos) - max_items
     todos = todos[:max_items]
-    lines = ["OPEN TODOS (close with `cc-discord-kit journal done <id>`):"]
+    lines = ["OPEN TODOS (close with `cc-discord-kit todo done <id>`):"]
     for t in todos:
         bits = []
         if t.get("owner"):
@@ -748,7 +752,7 @@ def format_todos_for_prompt(*, max_items: int = 10,
         text = re.sub(r"\s+", " ", t.get("text", "")).strip()[:100]
         lines.append(f"  ☐ #{t['id']} {text}{meta}")
     if extra > 0:
-        lines.append(f"  … +{extra} more open (`cc-discord-kit journal todos`)")
+        lines.append(f"  … +{extra} more open (`cc-discord-kit todo list`)")
     return "\n".join(lines)
 
 
@@ -803,9 +807,7 @@ def journal_recent(days: int = 7) -> list[dict]:
 
 
 def format_journal_for_prompt(days: int = 7) -> str:
-    # Todos are surfaced separately via format_todos_for_prompt — keep them
-    # out of the moments timeline (this is the journal/todo toggle).
-    entries = [e for e in journal_recent(days) if e.get("kind") != "todo"]
+    entries = journal_recent(days)
     if not entries:
         return ""
     lines = [f"JOURNAL (pinned moments, last {days} days):"]
