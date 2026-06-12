@@ -424,17 +424,45 @@ def _pid_alive(pid) -> bool:
         return False
 
 
+_SPAWN_CLAIM_TTL = 30
+
+
+def _updater_claimed(value, now: float) -> bool:
+    """Is the updater slot taken — either a live pid or a fresh
+    'spawning:<ts>' claim from a fork that hasn't written its pid yet?"""
+    if isinstance(value, str) and value.startswith("spawning:"):
+        try:
+            return now - float(value.split(":", 1)[1]) < _SPAWN_CLAIM_TTL
+        except (ValueError, IndexError):
+            return False
+    return _pid_alive(value)
+
+
 def _ensure_updater(session: str) -> None:
     """Spawn the detached poller for this session if not already alive.
 
     Hook processes must exit promptly (the harness waits on them), so
     the updater is double-forked + setsid'd to detach fully. The
     grandchild re-execs this script with --updater so it gets a clean
-    interpreter state instead of inheriting the hook's."""
-    state = _load_av_state()
-    sess = state.get(session) or {}
-    if _pid_alive(sess.get("updater_pid")):
-        return
+    interpreter state instead of inheriting the hook's.
+
+    The claim is written under the shared state lock BEFORE forking —
+    two near-simultaneous registrations otherwise both pass a naive
+    liveness check, spawn two updaters, and double-post the panel."""
+    try:
+        from narrate import _state_lock
+        with _state_lock():
+            state = _load_av_state()
+            sess = state.get(session) or {}
+            if _updater_claimed(sess.get("updater_pid"), time.time()):
+                return
+            if session in state:
+                state[session]["updater_pid"] = f"spawning:{time.time()}"
+                _save_av_state(state)
+    except Exception as exc:  # noqa: BLE001 — fall back to unserialized
+        log(f"spawn claim failed ({exc}); proceeding unlocked")
+        if _pid_alive((_load_av_state().get(session) or {}).get("updater_pid")):
+            return
     try:
         pid = os.fork()
     except OSError as exc:
@@ -461,19 +489,21 @@ def _ensure_updater(session: str) -> None:
 def run_updater(session: str) -> None:
     """Detached poller: refresh stats and publish the panel every tick
     until every agent is terminal (or the hard timeout trips)."""
-    tick = float(os.environ.get("CCDK_AGENT_VIEW_TICK", "5"))
+    tick = float(os.environ.get("CCDK_AGENT_VIEW_TICK", "2"))
     deadline = time.time() + _HARD_TIMEOUT
-    state = _load_av_state()
-    if session in state:
-        # Double-spawn guard: two near-simultaneous registrations can
-        # both pass _ensure_updater's liveness check. Whoever finds a
-        # DIFFERENT live updater already recorded yields.
-        existing = state[session].get("updater_pid")
-        if existing and existing != os.getpid() and _pid_alive(existing):
-            log(f"updater for {session[:8]}: {existing} already live, yielding")
-            return
-        state[session]["updater_pid"] = os.getpid()
-        _save_av_state(state)
+    from narrate import _state_lock
+    with _state_lock():
+        state = _load_av_state()
+        if session in state:
+            # second line of defense: if a DIFFERENT live updater wrote
+            # its pid first, yield instead of double-driving the panel
+            existing = state[session].get("updater_pid")
+            if (existing and existing != os.getpid()
+                    and _pid_alive(existing)):
+                log(f"updater for {session}: {existing} already live, yielding")
+                return
+            state[session]["updater_pid"] = os.getpid()
+            _save_av_state(state)
     log(f"updater started for {session[:8]} (pid {os.getpid()})")
     frame = 0
     while True:
@@ -657,6 +687,14 @@ def publish_panel(session: str, sess: dict, final: bool,
         # something landed below the panel: delete + repost at bottom
         _discord_delete(token, chat_id, sess["standalone_msg_id"])
         _update_sess_fields(session, sess, standalone_msg_id=None)
+    if not sess.get("standalone_msg_id"):
+        # last-moment re-read: another updater may have created the card
+        # between our state load and now — edit it instead of duplicating
+        fresh = _load_av_state().get(session) or {}
+        if fresh.get("standalone_msg_id"):
+            sess["standalone_msg_id"] = fresh["standalone_msg_id"]
+            sess["standalone_replies_at_create"] = fresh.get(
+                "standalone_replies_at_create", 0)
     if sess.get("standalone_msg_id"):
         _discord_edit(token, chat_id, sess["standalone_msg_id"], panel)
     else:

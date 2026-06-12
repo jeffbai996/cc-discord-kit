@@ -141,3 +141,13 @@ def test_tick_never_loses_async_agent(monkeypatch):
     av.tick_agents(agents, subagents_dir="/tmp/none",
                    now=100.0 + av._LOST_AFTER + 9999)
     assert agents["k"]["status"] == "running"  # notification path owns it
+
+
+def test_updater_claimed_semantics():
+    import time
+    now = time.time()
+    assert av._updater_claimed(f"spawning:{now - 5}", now)      # fresh claim
+    assert not av._updater_claimed(f"spawning:{now - 60}", now)  # stale claim
+    assert not av._updater_claimed("spawning:garbage", now)
+    assert av._updater_claimed(os.getpid(), now)                 # live pid
+    assert not av._updater_claimed(None, now)
