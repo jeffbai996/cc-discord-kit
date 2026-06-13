@@ -77,9 +77,20 @@ def fmt_tokens(n: int) -> str:
 
 _GLYPH = {"running": "○", "done": "●", "failed": "✗", "lost": "✗"}
 
-# Header blinker: cycles one frame per updater tick while agents run, so
-# a glance at the top-left shows the panel is live-updating. Dropped on
-# the final render.
+# Running-state blink: the dot toggles hollow/filled-eye on each updater
+# tick so a running task visibly pulses, while a finished task sits as a
+# steady ●. ◉ (not ●) on the "on" frame keeps a running row distinct
+# from a done row even on a single frozen frame.
+_RUN_BLINK = ("○", "◉")
+
+# Task-name truncation. Stored label is capped at 48 (handle_pre); 40
+# here gives desktop Discord room for near-full descriptions without the
+# old aggressive "noteboo"-style chop.
+_NAME_CAP = 40
+
+# Header indicator: an animated spinner cycles one frame per updater tick
+# while agents run (a glance at the top-left shows the panel is live),
+# settling to a steady ● once everything is terminal.
 _SPINNER = ("◐", "◓", "◑", "◒")
 
 
@@ -97,27 +108,43 @@ def _format_rows(rows: list[tuple[str, ...]]) -> str:
 
 def render_panel(bot_name: str, agents: list[dict], now: float,
                  max_chars: int = 900, stale: bool = False,
-                 spinner_frame: int | None = None) -> str:
+                 spinner_frame: int | None = None,
+                 final: bool = False) -> str:
     """Render the agents panel as a fenced code block.
 
     Row: `  <glyph>  <label>  <model>  <elapsed>  <tokens>`, columns
     padded to the widest entry. When over max_chars, finished rows are
     dropped oldest-first and summarized as an `… +N more` marker —
     running agents are never dropped before finished ones.
+
+    The top-left glyph animates while live (spinner), then settles to a
+    steady ● on the final render. Running rows pulse their dot each tick
+    (frame parity over _RUN_BLINK); finished rows show a steady glyph.
     """
     running = [a for a in agents if a["status"] == "running"]
     finished = [a for a in agents if a["status"] != "running"]
     total_tok = sum(a.get("tokens") or 0 for a in agents)
     header = (f"agents · {bot_name} · {len(running)} running · "
               f"{len(finished)} done · {fmt_tokens(total_tok)} tok")
-    if spinner_frame is not None:
+    if final:
+        header = "● " + header
+    elif spinner_frame is not None:
         header = _SPINNER[spinner_frame % len(_SPINNER)] + " " + header
+    else:
+        # static snapshot (!agents): steady ● if nothing's live, a
+        # filled-eye to echo the pulsing running rows otherwise
+        header = ("◉ " if running else "● ") + header
     if stale:
         header += " · stale"
 
     def row_cells(a: dict) -> tuple[str, str, str, str, str]:
         end = a.get("ended_at") or now
-        return (_GLYPH.get(a["status"], "?"), a["label"][:24],
+        if a["status"] == "running":
+            glyph = ("◉" if spinner_frame is None
+                     else _RUN_BLINK[spinner_frame % len(_RUN_BLINK)])
+        else:
+            glyph = _GLYPH.get(a["status"], "?")
+        return (glyph, a["label"][:_NAME_CAP],
                 model_alias(a.get("model")),
                 fmt_elapsed(max(0.0, end - a["started_at"])),
                 fmt_tokens(a.get("tokens") or 0))
@@ -538,9 +565,10 @@ def run_updater(session: str) -> None:
 
 def _bot_name() -> str:
     """Panel-header identity. Precedence: SQUAD_STORE_BOT env override;
-    the squad bot registry (bot_config.detect_bot resolves co-located
-    bots by config/state dir — turns ~/.claude into 'fraggy' instead of
-    the cwd basename); session cwd basename as the last resort."""
+    the bot registry (bot_config.detect_bot resolves co-located bots by
+    config/state dir — turns a shared ~/.claude into the bot's real name
+    instead of the cwd basename); session cwd basename as the last
+    resort."""
     name = os.environ.get("SQUAD_STORE_BOT")
     if name:
         return name
@@ -649,7 +677,7 @@ def publish_panel(session: str, sess: dict, final: bool,
     agents = list(sess["agents"].values())
     now = time.time()
     panel = render_panel(_bot_name(), agents, now, stale=stale,
-                         spinner_frame=spinner_frame)
+                         spinner_frame=spinner_frame, final=final)
 
     turn_key, turn = _narrate_turn_for(sess)
     if turn is not None and turn.get("tool_msg_id") \
@@ -667,7 +695,7 @@ def publish_panel(session: str, sess: dict, final: bool,
             if len(panel) > budget:
                 panel = render_panel(_bot_name(), agents, now,
                                      max_chars=budget, stale=stale,
-                                     spinner_frame=spinner_frame)
+                                     spinner_frame=spinner_frame, final=final)
             turn["agent_panel"] = panel
             content = tw._tool_message_content(
                 turn.get("tool_buffer", ""), panel=panel)

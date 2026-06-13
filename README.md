@@ -36,13 +36,13 @@ Your agent is running a task in the terminal. Here's the same turn, in your Disc
 - ● Bash(npm run deploy) FAILED
 ```
 
-**It shows its subagents** — when the agent fans work out, a live panel rides the bottom of the tool trace, edited in place every few seconds (spinner blinks per update, circles fill as agents land, tokens and elapsed from the real transcripts):
+**It shows its subagents** — when the agent fans work out, a live panel rides the bottom of the tool trace, edited in place every few seconds (top-left spinner pulses per update, each running dot blinks ○⇄◉, circles fill solid as agents land, tokens and elapsed from the real transcripts):
 
 ```
-◐ agents · mybot · 2 running · 1 done · 16.5k tok
+◓ agents · mybot · 2 running · 1 done · 16.5k tok
 
-  ○  research bear case   sonnet  1m12s  12.3k
-  ○  audit api handlers   sonnet  1m12s   3.9k
+  ◉  research bear case   sonnet  1m12s  12.3k
+  ◉  audit api handlers   sonnet  1m12s   3.9k
   ●  verify margin math   haiku     31s   4.2k
 ```
 
@@ -378,8 +378,9 @@ nothing to commit, working tree clean
 When the session fans work out to subagents, the panel appears as a footer
 on the live tool-trace message and re-renders every ~5 seconds.
 
-**Mid-burst** — the spinner glyph advances one frame per update (◐ ◓ ◑ ◒),
-so you can tell at a glance the panel is alive, not frozen:
+**Mid-burst** — the top-left spinner advances one frame per update
+(◐ ◓ ◑ ◒) and each running task's dot pulses ○⇄◉ in step, so you can tell
+at a glance the panel is alive, not frozen. Two consecutive frames:
 
 ```diff
 + ● Agent({"description":"research bear case","prompt":"Research the…)
@@ -393,13 +394,20 @@ so you can tell at a glance the panel is alive, not frozen:
   ○  audit api handlers   sonnet  1m12s   3.9k
   ●  verify margin math   haiku     31s   4.2k
 ```
+```
+◒ agents · mybot · 2 running · 1 done · 16.7k tok
 
-**Burst complete** — spinner drops, circles fill, the final summary
-freezes in place (`ticker`/`diffs`/`full` modes) or vanishes with the
-trace (`collapse`):
+  ◉  research bear case   sonnet  1m14s  12.4k
+  ◉  audit api handlers   sonnet  1m14s   3.9k
+  ●  verify margin math   haiku     31s   4.2k
+```
+
+**Burst complete** — the spinner settles to a solid ●, every dot fills,
+the final summary freezes in place (`ticker`/`diffs`/`full` modes) or
+vanishes with the trace (`collapse`):
 
 ```
-agents · mybot · 0 running · 3 done · 31.8k tok
+● agents · mybot · 0 running · 3 done · 31.8k tok
 
   ●  research bear case   sonnet  4m07s  21.4k
   ●  audit api handlers   sonnet  3m44s   6.2k
@@ -413,20 +421,21 @@ forever:
 ```
 ◒ agents · mybot · 1 running · 2 done · 9.1k tok
 
-  ○  research bear case   sonnet  2m02s   7.7k
+  ◉  research bear case   sonnet  2m02s   7.7k
   ✗  audit api handlers   sonnet    44s   1.4k
   ✗  verify margin math   haiku    15m0s     0
 ```
 
 **On demand** — `!agents` replies with a snapshot of the same panel, in
-any channel, any mode:
+any channel, any mode. A snapshot can't animate, so the status dot sits
+static: ◉ while anything's live, ● once everything's done:
 
 > **you:** `!agents`
 > **bot:**
 > ```
-> agents · mybot · 1 running · 2 done · 28.7k tok
+> ◉ agents · mybot · 1 running · 2 done · 28.7k tok
 >
->   ○  research bear case   sonnet  3m21s  18.3k
+>   ◉  research bear case   sonnet  3m21s  18.3k
 >   ●  audit api handlers   sonnet  3m44s   6.2k
 >   ●  verify margin math   haiku     31s   4.2k
 > ```

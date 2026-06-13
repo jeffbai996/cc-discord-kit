@@ -48,9 +48,10 @@ def test_render_panel_header_and_rows():
     out = av.render_panel("mybot", agents, now=1072.0)
     lines = out.splitlines()
     assert lines[0] == "```"
-    assert lines[1] == "agents · mybot · 1 running · 1 done · 16.5k tok"
+    # snapshot (no frame) with a running agent -> filled-eye status dot
+    assert lines[1] == "◉ agents · mybot · 1 running · 1 done · 16.5k tok"
     assert lines[2] == ""  # blank spacer row
-    assert lines[3].lstrip().startswith("○")
+    assert lines[3].lstrip().startswith("◉")  # running row: static live frame
     assert "bear-case:capex" in lines[3]
     assert "sonnet" in lines[3] and "1m12s" in lines[3] and "12.3k" in lines[3]
     assert lines[4].lstrip().startswith("●")
@@ -100,7 +101,24 @@ def test_render_panel_spinner_frames_cycle():
     assert h0.split()[1] == "agents"  # glyph sits left of "agents"
 
 
-def test_render_panel_no_spinner_when_frame_none():
-    out = av.render_panel("bot", [_agent("x", status="done", ended=2.0)],
-                          now=3.0)
-    assert out.splitlines()[1].startswith("agents ·")
+def test_render_panel_static_status_dot_when_frame_none():
+    # snapshot, all terminal -> steady ● ; snapshot with a runner -> ◉
+    done = av.render_panel("bot", [_agent("x", status="done", ended=2.0)],
+                           now=3.0)
+    assert done.splitlines()[1].startswith("● agents ·")
+    live = av.render_panel("bot", [_agent("y")], now=3.0)
+    assert live.splitlines()[1].startswith("◉ agents ·")
+
+
+def test_render_panel_running_dot_blinks_across_frames():
+    agents = [_agent("x")]  # running
+    off = av.render_panel("bot", agents, now=1.0, spinner_frame=0).splitlines()[3]
+    on = av.render_panel("bot", agents, now=1.0, spinner_frame=1).splitlines()[3]
+    assert off.lstrip().startswith("○")   # blink off-frame
+    assert on.lstrip().startswith("◉")    # blink on-frame
+
+
+def test_render_panel_final_settles_to_solid_dot():
+    agents = [_agent("x", status="done", ended=2.0)]
+    out = av.render_panel("bot", agents, now=3.0, spinner_frame=None, final=True)
+    assert out.splitlines()[1].startswith("● agents ·")
