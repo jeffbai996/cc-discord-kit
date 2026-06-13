@@ -675,7 +675,8 @@ def cmd_todo(args: argparse.Namespace) -> int:
             return 1
         print(f"To-do #{args.id} → {target}")
         _post_card_if_discord(
-            {"kind": "todo_status", "id": args.id, "status": target}, args)
+            {"kind": "todo_status", "id": args.id, "status": target,
+             "text": e.get("text", "")}, args)
         return 0
     return 2
 

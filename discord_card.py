@@ -273,6 +273,30 @@ def format_card(action: dict) -> str | None:
         if not before:
             return None
         return f"🗑️ **Journal #{before.get('id','?')} deleted**"
+    if kind == "todo_added":
+        # Todos are id-less by design — the card shows the checklist item, not
+        # a #number. owner/due ride as meta, mirroring the memory-card shape.
+        e = action.get("entry") or {}
+        text = e.get("text", "")
+        if not text:
+            return None
+        meta: list[tuple[str, str]] = []
+        if e.get("owner"):
+            meta.append(("owner", f"@{e['owner']}"))
+        if e.get("due"):
+            meta.append(("due", e["due"]))
+        return "🆕 **To-do added**\n" + _render_card_block(meta, _truncate_body(text))
+    if kind == "todo_status":
+        status = action.get("status", "")
+        text = action.get("text", "")
+        head = {
+            "done": "✅ **To-do done**",
+            "cancelled": "🚫 **To-do cancelled**",
+            "open": "↩️ **To-do reopened**",
+        }.get(status, "**To-do updated**")
+        if not text:
+            return head
+        return head + "\n" + _render_card_block([], _truncate_body(text))
     return None
 
 
