@@ -113,6 +113,52 @@ def test_format_card_all_kinds_render_without_crash():
         assert isinstance(format_card(c), str)
 
 
+# ─── 🧪 TEST badge for Tier-3 self-initiated cards ───
+
+def test_self_initiated_flag_badges_header():
+    action = {
+        "kind": "memory_edited", "id": 1,
+        "before": {"id": 1, "name": "climem", "text": "old"},
+        "after": {"id": 1, "name": "climem", "text": "new"},
+        "_self_initiated": True,
+    }
+    card = format_card(action)
+    assert card is not None
+    # Badge prepends the bold header on the first line.
+    assert card.startswith("🧪 `TEST` ")
+    assert "**Memory #1 edited**" in card.splitlines()[0]
+
+
+def test_no_flag_leaves_header_unbadged():
+    action = {
+        "kind": "memory_edited", "id": 1,
+        "before": {"id": 1, "name": "climem", "text": "old"},
+        "after": {"id": 1, "name": "climem", "text": "new"},
+    }
+    card = format_card(action)
+    assert card is not None
+    assert "🧪" not in card
+    assert card.startswith("✏️ **Memory #1 edited**")
+
+
+def test_self_initiated_badge_on_all_kinds():
+    cases = [
+        {"kind": "memory_saved", "entry": {"id": 1, "type": "user", "name": "x", "text": "y"}},
+        {"kind": "memory_edited", "id": 1, "before": {"name": "a"}, "after": {"name": "b"}},
+        {"kind": "journal_added", "entry": {"id": 2, "tags": ["t"], "actor": "a", "text": "t"}},
+    ]
+    for c in cases:
+        c = {**c, "_self_initiated": True}
+        out = format_card(c)
+        assert out is not None and out.startswith("🧪 `TEST` ")
+
+
+def test_self_initiated_on_unrenderable_still_none():
+    # Flag must not manufacture a card where there's nothing to render.
+    assert format_card({"kind": "memory_deleted", "before": None,
+                        "_self_initiated": True}) is None
+
+
 # ─── fence sanitization ───
 
 def test_sanitize_fence_replaces_triple_backticks():

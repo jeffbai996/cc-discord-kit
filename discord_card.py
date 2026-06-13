@@ -197,7 +197,25 @@ def format_card(action: dict) -> str | None:
 
     Returns None if the action has nothing renderable (e.g. delete of a
     missing id where `before` is None).
+
+    If `action["_self_initiated"]` is truthy, the card is a Tier-3 home-channel
+    post — an agent writing to the store with no Discord conversation behind it
+    (smoke-test, cleanup, cron). We badge the header with 🧪 TEST so it reads at
+    a glance as a self-initiated write, not a real conversation save. Cards tied
+    to an explicit --discord-chat-id (Tier-1) or a live Discord turn (Tier-2)
+    never set this flag, so they stay unbadged.
     """
+    rendered = _format_card_inner(action)
+    if rendered is None:
+        return None
+    if action.get("_self_initiated"):
+        # Prepend the badge ahead of the existing bold header. The header is
+        # always the first line, so this lands inline with the emoji+verb.
+        rendered = "🧪 `TEST` " + rendered
+    return rendered
+
+
+def _format_card_inner(action: dict) -> str | None:
     kind = action.get("kind")
     if kind == "memory_saved":
         e = action.get("entry") or {}

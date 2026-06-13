@@ -355,10 +355,15 @@ def _post_card_if_discord(action: dict, args: argparse.Namespace) -> None:
             # Agent invoking the CLI but the current turn isn't Discord-
             # routed (self-initiated cleanup, scheduled task, etc). Post
             # to that agent's home channel if agents.yaml declares one.
+            # Flag it self-initiated so the renderer badges the card 🧪 TEST —
+            # makes a smoke-test/cleanup write read as such at a glance instead
+            # of masquerading as a real conversation save.
             bot = _detect_calling_bot()
             meta = personas.get_agent_meta(bot)
             chat_id = str(meta.get("discord_home_channel") or "")
             msg_id = None
+            if chat_id:
+                action = {**action, "_self_initiated": True}
 
     if not chat_id:
         return
