@@ -74,3 +74,61 @@ def test_agents_snapshot_does_not_bleed_across_bots(tmp_path, monkeypatch):
     assert code == 0
     assert "other-bots-secret-job" not in out
     assert "no agents" in out.lower()
+
+
+def _seed_one(monkeypatch, tmp_path, agents):
+    monkeypatch.setenv("CCDK_AGENT_VIEW_STATE", str(tmp_path / "s.json"))
+    import agent_view as av
+    monkeypatch.setattr(av, "_bot_key", lambda: "testbot")
+    monkeypatch.setattr(av, "_bot_token", lambda: None)
+    av._save_av_state({"testbot:sess1": {
+        "chat_id": "1", "transcript_path": "/t", "updater_pid": None,
+        "standalone_msg_id": None, "panel_cards": [], "agents": agents}})
+    return av
+
+
+def _mk(status, ended=None):
+    return {"label": "j", "model": "m", "status": status,
+            "started_at": 0.0, "ended_at": ended, "tokens": 5,
+            "prompt_sha": "p", "agent_id": None, "_prompt": "x",
+            "transcript": None}
+
+
+def test_reserved_agents_clear_finished_keeps_running(tmp_path, monkeypatch):
+    av = _seed_one(monkeypatch, tmp_path,
+                   {"a": _mk("done", 5.0), "b": _mk("running")})
+    out, code = dp.run_reserved_agents("clear")
+    assert code == 0
+    assert "1 finished dropped" in out and "1 running kept" in out
+    assert set(av._load_av_state()["testbot:sess1"]["agents"]) == {"b"}
+
+
+def test_reserved_agents_clear_all_empties(tmp_path, monkeypatch):
+    av = _seed_one(monkeypatch, tmp_path, {"a": _mk("running")})
+    out, code = dp.run_reserved_agents("clear all")
+    assert code == 0 and "cleared" in out.lower()
+    assert av._load_av_state()["testbot:sess1"]["agents"] == {}
+
+
+def test_reserved_agents_clear_nothing_to_clear(tmp_path, monkeypatch):
+    monkeypatch.setenv("CCDK_AGENT_VIEW_STATE", str(tmp_path / "empty.json"))
+    import agent_view as av
+    monkeypatch.setattr(av, "_bot_key", lambda: "testbot")
+    out, code = dp.run_reserved_agents("clear")
+    assert code == 0 and "no agent panel" in out.lower()
+
+
+def test_reserved_agents_help_page():
+    out, code = dp.run_reserved_agents("help")
+    assert code == 0 and out.startswith("```")
+    assert "!agents clear" in out and "clear all" in out
+
+
+def test_reserved_help_detector_and_page():
+    assert dp.is_reserved_help_cmd("help")
+    assert dp.is_reserved_help_cmd("HELP")
+    assert not dp.is_reserved_help_cmd("helper")
+    assert not dp.is_reserved_help_cmd("ls help")
+    out, code = dp.run_reserved_help()
+    assert code == 0 and out.startswith("```")
+    assert "!t=N" in out and "!agents" in out

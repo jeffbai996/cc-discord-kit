@@ -592,16 +592,63 @@ def is_reserved_agents_cmd(cmd: str) -> bool:
     return head in _RESERVED_AGENTS
 
 
+def _format_clear_result(res: dict, scope: str) -> str:
+    if not res.get("found"):
+        return "no agent panel to clear"
+    cleared, kept = res.get("cleared", 0), res.get("kept", 0)
+    if scope == "all":
+        return f"agent list cleared — {cleared} dropped"
+    if kept:
+        return f"cleared — {cleared} finished dropped, {kept} running kept"
+    return f"agent list cleared — {cleared} finished dropped"
+
+
 def run_reserved_agents(args: str) -> tuple[str, int]:
-    """!agents [session-id] — render the agent-view panel snapshot."""
+    """!agents [clear [all] | help | <session-id>] — agent-view panel
+    snapshot, registry clear, or help page."""
     try:
         import agent_view
+        parts = args.split()
+        sub = parts[0].lower() if parts else ""
+        if sub == "help":
+            return (f"```\n{agent_view.agents_help()}\n```", 0)
+        if sub == "clear":
+            scope = "all" if len(parts) > 1 and parts[1].lower() == "all" \
+                else "finished"
+            res = agent_view.clear_agents(scope=scope)
+            return (_format_clear_result(res, scope), 0)
         out = agent_view.render_snapshot(args.strip() or None)
     except Exception as e:  # noqa: BLE001 — never crash the hook
         return (f"```\nagent-view error: {e}\n```", 1)
     if not out.startswith("```"):
         out = "```\n" + out + "\n```"
     return (out, 0)
+
+
+TERMINAL_HELP = """terminal passthrough — ! commands
+
+  !<cmd>          run a shell command on the host, reply with its output
+  !t=N <cmd>      run with an N-second timeout (default 30, max 600)
+  !               open a live terminal "screen" — a code block patched
+                  in place as you run commands
+  !exit  /  !q    close the live terminal screen
+  !agents […]     agent-view panel — run `!agents help` for its commands
+  !help           this page
+
+  /<cmd> […]      run a registered slash command (host-side script)
+
+Dangerous commands (rm -rf, sudo, reboot, …) are blocked. Owner-only:
+input from anyone but the owner is ignored."""
+
+
+def is_reserved_help_cmd(cmd: str) -> bool:
+    head = cmd.split(None, 1)[0].lower() if cmd.split() else ""
+    return head == "help"
+
+
+def run_reserved_help() -> tuple[str, int]:
+    """!help — terminal passthrough help page."""
+    return (f"```\n{TERMINAL_HELP}\n```", 0)
 
 
 def check_denylist(cmd: str) -> str | None:
@@ -933,7 +980,14 @@ def main() -> int:
                 head_args[1] if len(head_args) > 1 else "")
             log(f"AGENTS chat={chat_id} exit={code}")
             _discord_post_message(token, chat_id, out, reply_to=msg_id)
-            _emit_block("!agents snapshot posted")
+            _emit_block("!agents reply posted")
+            return 0
+        # Reserved: !help — terminal passthrough help, never hits the shell.
+        if is_reserved_help_cmd(cmd):
+            out, code = run_reserved_help()
+            log(f"HELP chat={chat_id} exit={code}")
+            _discord_post_message(token, chat_id, out, reply_to=msg_id)
+            _emit_block("!help page posted")
             return 0
         # Denylist check (raw shell only — slash commands are gated by registration).
         deny_label = check_denylist(cmd)

@@ -295,7 +295,7 @@ The `hooks/` directory has a full set of Claude Code hooks. Wire any subset into
 
 ### Discord pass-through + slash dispatch
 
-- **`discord_passthrough.py`** (UserPromptSubmit) — intercepts Discord-origin `!cmd` (raw shell) and `/cmd` (registered slash) messages from the configured owner, runs them on the host, replies directly to Discord, blocks the prompt from reaching the model (zero token spend). See `commands/README.md` for the dispatch contract. Owner check: `CCDK_OWNER_DISCORD_USER_ID` or `~/.config/cc-discord-kit/owner_id`.
+- **`discord_passthrough.py`** (UserPromptSubmit) — intercepts Discord-origin `!cmd` (raw shell) and `/cmd` (registered slash) messages from the configured owner, runs them on the host, replies directly to Discord, blocks the prompt from reaching the model (zero token spend). See `commands/README.md` for the dispatch contract. Owner check: `CCDK_OWNER_DISCORD_USER_ID` or `~/.config/cc-discord-kit/owner_id`. `!help` prints the command reference; `!agents help` prints the agent-view reference.
 
   **Live-terminal mode.** Send a bare `!` to open a *terminal screen* — a single pinned Discord message that's PATCHed in place as you run commands, instead of a new reply per command. While the pane is open, each `!cmd` appends to a rolling scrollback (last 25 lines) rendered into that one message, so a channel reads like a real terminal. Close it with `!exit` (or `!q`) — the screen gets a final `Goodbye! 👋` frame. A pane left idle for 30 minutes auto-expires back to one-shot mode (so a forgotten session doesn't keep editing a message scrolled out of view). Session state lives in `CCDK_SESSION_STATE_FILE` (default `~/.cache/cc-discord-kit/passthrough_term.json`).
 
@@ -331,7 +331,7 @@ The `hooks/` directory has a full set of Claude Code hooks. Wire any subset into
 
   The panel renders as a **footer on the live tool-trace message**: Discord edits don't reorder messages, so it stays pinned at the visual bottom and migrates automatically when the trace rotates to a fresh segment. No trace to ride (quiet channel)? It posts standalone and reposts itself below anything that displaces it. Lifecycle follows the channel's `tools` mode — `off` no panel, `collapse` deleted with the trace at Stop, `ticker`/`diffs`/`full` frozen in place as the final summary.
 
-  Registry lives in `~/.local/state/cc-discord-kit/agent_view_state.json`; a silent running agent is marked lost after 15 min; the poller self-destructs after 2 h with a `stale` marker. `!agents` / `!agent` in any channel replies with a one-shot snapshot (reserved command — never hits the shell, works even in `off` mode).
+  Registry lives in `~/.local/state/cc-discord-kit/agent_view_state.json`; a silent running agent is marked lost after 15 min; the poller self-destructs after 2 h with a `stale` marker. `!agents` / `!agent` in any channel replies with a one-shot snapshot (reserved command — never hits the shell, works even in `off` mode). Subcommands: `!agents clear` drops finished rows and keeps runners, `!agents clear all` wipes the lot, `!agents help` prints the reference. Clear is view-only — it stops *tracking* agents, it never kills a running subagent.
 
 <a name="tool-trace-by-example"></a>
 #### Tool-trace, by example
@@ -439,6 +439,13 @@ static: ◉ while anything's live, ● once everything's done:
 >   ●  audit api handlers   sonnet  3m44s   6.2k
 >   ●  verify margin math   haiku     31s   4.2k
 > ```
+
+**Reset** — `!agents clear` drops the finished rows once a burst has
+landed (`clear all` wipes runners too). View-only: the subagents keep
+running, they just leave the panel.
+
+> **you:** `!agents clear`
+> **bot:** cleared — 2 finished dropped, 1 running kept
 
 ### Discord echo + guardrails
 

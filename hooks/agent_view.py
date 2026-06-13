@@ -534,16 +534,22 @@ def run_updater(session: str) -> None:
     log(f"updater started for {session[:8]} (pid {os.getpid()})")
     frame = 0
     while True:
-        state = _load_av_state()
-        sess = state.get(session)
-        if not sess or not sess.get("agents"):
-            log(f"updater for {session[:8]}: nothing to track, exiting")
-            return
-        now = time.time()
-        tick_agents(sess["agents"],
-                    _subagents_dir(sess.get("transcript_path") or ""), now)
-        settle_async(sess, now)
-        _save_av_state(state)
+        # Hold the state lock across load→mutate→save so a concurrent
+        # clear_agents() (e.g. `!agents clear all` mid-burst) can't be
+        # clobbered by this tick writing a stale snapshot back. Lock is
+        # released before publish_panel — Discord I/O must not block the
+        # recorder/other hooks.
+        with _state_lock():
+            state = _load_av_state()
+            sess = state.get(session)
+            if not sess or not sess.get("agents"):
+                log(f"updater for {session[:8]}: nothing to track, exiting")
+                return
+            now = time.time()
+            tick_agents(sess["agents"],
+                        _subagents_dir(sess.get("transcript_path") or ""), now)
+            settle_async(sess, now)
+            _save_av_state(state)
         stale = now > deadline
         final = all_terminal(sess["agents"])
         try:
@@ -833,6 +839,90 @@ def render_snapshot(session: str | None = None) -> str:
         return "no agents running this session"
     return render_panel(_bot_name(), list(sess["agents"].values()),
                         now=time.time())
+
+
+def clear_agents(session: str | None = None,
+                 scope: str = "finished") -> dict:
+    """Drop agents from a session's registry.
+
+    scope='finished' removes done/failed/lost rows and keeps anything
+    still running; scope='all' removes everything. Targets the given
+    session, else the bot's most-recently-active one (same resolution as
+    render_snapshot). View-only: this never terminates a live subagent,
+    it only stops tracking/showing it — which is why 'finished' is the
+    safe default. If the list empties, the standalone panel card(s) are
+    deleted (footer panels baked into a finished trace are history and
+    stay). Returns {found, cleared, kept, scope, emptied}."""
+    from narrate import _state_lock
+    prefix = _bot_key() + ":"
+    result = {"found": False, "cleared": 0, "kept": 0,
+              "scope": scope, "emptied": False}
+    cards_to_delete: list[str] = []
+    chat_id = None
+    with _state_lock():
+        state = _load_av_state()
+        mine = {k: v for k, v in state.items() if k.startswith(prefix)}
+        if session:
+            sess = mine.get(session) or mine.get(prefix + session)
+        else:
+            sess = max(mine.values(), key=_sess_age_anchor, default=None)
+        if not sess or not sess.get("agents"):
+            return result
+        result["found"] = True
+        agents = sess["agents"]
+        if scope == "all":
+            keep = {}
+        else:
+            keep = {k: a for k, a in agents.items()
+                    if a.get("status") == "running"}
+        result["cleared"] = len(agents) - len(keep)
+        result["kept"] = len(keep)
+        sess["agents"] = keep
+        if not keep:
+            result["emptied"] = True
+            chat_id = sess.get("chat_id")
+            cards_to_delete = list(sess.get("panel_cards") or [])
+            sid = sess.get("standalone_msg_id")
+            if sid and sid not in cards_to_delete:
+                cards_to_delete.append(sid)
+            sess["standalone_msg_id"] = None
+            sess["panel_cards"] = []
+        _save_av_state(state)
+    # Discord deletes happen outside the lock — network I/O must not
+    # stall the recorder/updater.
+    if cards_to_delete and chat_id:
+        token = _bot_token()
+        if token:
+            for mid in cards_to_delete:
+                _discord_delete(token, chat_id, mid)
+    return result
+
+
+AGENTS_HELP = """agents view — live subagent panel
+
+  !agents            snapshot of the current panel
+  !agents clear      drop finished agents, keep any still running
+  !agents clear all  drop everything, running rows included
+  !agents help       this page
+
+While subagents run, the panel rides the bottom of the tool trace,
+edited in place every ~2s. The top-left spinner pulses while live and
+settles to a solid dot when every agent is done. Each row shows status,
+task, model, elapsed, tokens.
+
+  ○ / ◉   running (the dot blinks each tick)
+  ●       finished
+  ✗       failed, or lost (transcript silent 15 min)
+
+Lifecycle follows the channel's `/bot tools` mode: in `collapse` the
+panel vanishes with the trace; in ticker/diffs/full it freezes in place.
+`clear` is view-only — it never kills a running subagent, only stops
+showing it."""
+
+
+def agents_help() -> str:
+    """Help page for the agent-view command surface (!agents …)."""
+    return AGENTS_HELP
 
 
 def main() -> int:
