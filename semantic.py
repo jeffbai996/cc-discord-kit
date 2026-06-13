@@ -31,6 +31,7 @@ FLOOR = float(os.environ.get("CCDK_SEMANTIC_FLOOR", "50"))
 MIN_PROMPT_CHARS = 12          # skip "ok" / "go" / "thanks"
 FETCH_K = max(12, TOP_N * 4)   # over-fetch so dedupe still yields TOP_N distinct
 SNIPPET_CHARS = 150
+FILES_CORPUS = os.environ.get("CCDK_SEMANTIC_FILES_CORPUS", "files")
 
 
 def _enabled() -> bool:
@@ -79,4 +80,52 @@ def format_recall(prompt: str) -> str:
         body = f"{name} — {snippet}" if name else snippet
         if body:
             lines.append(f"  • #{eid} [{pct:.0f}%] {body}")
+    return "\n".join(lines) if len(lines) > 1 else ""
+
+
+def _file_label(source_id: str) -> str:
+    """Map a files-corpus source to a citation: file-7.md -> 'file #7'."""
+    base = (source_id or "").rsplit("/", 1)[-1]
+    m = re.match(r"file-(\d+)", base)
+    return ("file #" + m.group(1)) if m else base.replace(".md", "")
+
+
+def format_files_recall(prompt: str) -> str:
+    """RAG over the shared FILES corpus — project-knowledge-style retrieval.
+
+    Same mechanism as format_recall, pointed at the documents store: embed the
+    prompt, pull the top relevant file chunks, inject them so file content is
+    in front of the agent automatically (push, not pull). "" if nothing matches
+    or vecgrep is down. No-op until the files store has content.
+    """
+    if not _enabled():
+        return ""
+    prompt = (prompt or "").strip()
+    if len(prompt) < MIN_PROMPT_CHARS:
+        return ""
+    try:
+        hits = vg._post_search(prompt, FILES_CORPUS, top_k=FETCH_K)
+    except vg.VecgrepUnavailable:
+        return ""
+    except Exception:
+        return ""
+
+    best: dict[str, dict] = {}
+    for h in hits:
+        pct = h.get("similarity_pct", 0)
+        if pct < FLOOR:
+            continue
+        label = _file_label(h.get("source_id", ""))
+        if label not in best or pct > best[label].get("similarity_pct", 0):
+            best[label] = h
+
+    ranked = sorted(best.items(), key=lambda kv: kv[1].get("similarity_pct", 0), reverse=True)[:TOP_N]
+    if not ranked:
+        return ""
+
+    lines = ["RELEVANT FILES (shared docs — full text via `ccdk files show <id>`):"]
+    for label, h in ranked:
+        snippet = _clean(h.get("chunk", ""))
+        if snippet:
+            lines.append(f"  • {label} [{h['similarity_pct']:.0f}%] {snippet}")
     return "\n".join(lines) if len(lines) > 1 else ""

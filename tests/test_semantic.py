@@ -82,3 +82,22 @@ def test_toggle_off(fresh_store, monkeypatch):
     monkeypatch.setenv("CCDK_SEMANTIC_RECALL", "0")
     _mock_hits(monkeypatch, [(1, 99.0)])
     assert semantic.format_recall("a sufficiently long query here") == ""
+
+
+def test_files_recall_renders_and_is_fail_silent(fresh_store, monkeypatch):
+    _reload_semantic()
+    import semantic, vecgrep_client
+    # mock the files-corpus search to return one hit above the floor
+    monkeypatch.setattr(vecgrep_client, "_post_search",
+                        lambda q, corpus, top_k=None: [
+                            {"source_id": "/x/file-7.md", "similarity_pct": 88.0,
+                             "chunk": "the rotation signal is capex deceleration"}])
+    block = semantic.format_files_recall("what signals the rotation")
+    assert "RELEVANT FILES" in block
+    assert "file #7" in block and "capex deceleration" in block
+
+    # vecgrep down -> silent ""
+    def _boom(*a, **k):
+        raise vecgrep_client.VecgrepUnavailable("down")
+    monkeypatch.setattr(vecgrep_client, "_post_search", _boom)
+    assert semantic.format_files_recall("what signals the rotation") == ""

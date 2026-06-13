@@ -65,6 +65,10 @@ def main() -> int:
         if recall:
             print(recall)
             print()
+        files = semantic.format_files_recall(prompt)
+        if files:
+            print(files)
+            print()
         idx = store.format_memories_index(bot=_detect_bot())
         if idx:
             print(idx)

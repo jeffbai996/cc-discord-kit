@@ -285,7 +285,7 @@ def format_card(action: dict) -> str | None:
             meta.append(("owner", f"@{e['owner']}"))
         if e.get("due"):
             meta.append(("due", e["due"]))
-        return "🆕 **To-do added**\n" + _render_card_block(meta, _truncate_body(text))
+        return "📝 **To-do added**\n" + _render_card_block(meta, _truncate_body(text))
     if kind == "todo_status":
         status = action.get("status", "")
         text = action.get("text", "")
