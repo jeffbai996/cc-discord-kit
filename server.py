@@ -361,7 +361,8 @@ def journal_todo_edit(entry_id: int):
     if "due" in f:
         store.set_todo_due(entry_id, f.get("due", ""), editor="web")
     if "flag" in f:
-        store.set_todo_flag(entry_id, f.get("flag") in ("1", "true", "on"), editor="web")
+        # getlist: hidden flag=0 + (when checked) flag=1, so unchecking persists.
+        store.set_todo_flag(entry_id, "1" in f.getlist("flag"), editor="web")
     if "tags" in f:
         tags = [t.strip() for t in f.get("tags", "").split(",") if t.strip()]
         store.set_todo_tags(entry_id, tags, editor="web")

@@ -30,7 +30,7 @@ def test_todos_view_renders_switcher_and_fields(client):
     html = c.get("/journal?view=todos").get_data(as_text=True)
     assert "To-dos" in html and "Entries" in html
     assert "⚑" in html and "the detail" in html
-    assert "todo-editor-" in html
+    assert "ck-card" in html and "ck-title-input" in html   # edit-in-place card
     assert f'maxlength="{store.TODO_NOTE_MAX}"' in html
 
 
