@@ -5,9 +5,9 @@
 {# Modern pill switcher (inline-styled to match this template's idiom). #}
 <div role="group" aria-label="journal view" style="display:inline-flex; gap:.2rem; background:var(--bg-3,#1c2128); padding:.22rem; border-radius:8px; border:1px solid var(--border); margin-bottom:1rem;">
   <a href="{{ url_for('journal_index') }}"
-     style="text-decoration:none; padding:.3rem .85rem; border-radius:6px; font-weight:600; font-size:.86rem; {% if view != 'todos' %}background:rgba(163,113,247,0.18); color:#c8a3ff;{% else %}color:var(--muted);{% endif %}">Moments</a>
+     style="text-decoration:none; padding:.3rem .85rem; border-radius:6px; font-weight:600; font-size:.86rem; transition:background 120ms ease,color 120ms ease; {% if view != 'todos' %}background:rgba(163,113,247,0.18); color:#c8a3ff;{% else %}color:var(--muted);{% endif %}">Entries</a>
   <a href="{{ url_for('journal_index', view='todos') }}"
-     style="text-decoration:none; padding:.3rem .85rem; border-radius:6px; font-weight:600; font-size:.86rem; {% if view == 'todos' %}background:rgba(163,113,247,0.18); color:#c8a3ff;{% else %}color:var(--muted);{% endif %}">To-dos{% if open_todos %} <span style="background:rgba(163,113,247,0.25); color:#d2b8ff; border-radius:999px; padding:.02rem .42rem; font-size:.72rem;">{{ open_todos|length }}</span>{% endif %}</a>
+     style="text-decoration:none; padding:.3rem .85rem; border-radius:6px; font-weight:600; font-size:.86rem; transition:background 120ms ease,color 120ms ease; {% if view == 'todos' %}background:rgba(45,194,164,0.18); color:#56d4bc;{% else %}color:var(--muted);{% endif %}">To-dos{% if open_todos %} <span style="background:rgba(45,194,164,0.28); color:#7fe7d4; border-radius:999px; padding:.02rem .42rem; font-size:.72rem;">{{ open_todos|length }}</span>{% endif %}</a>
 </div>
 
 {% if view == 'todos' %}
@@ -34,9 +34,12 @@
       <button type="button" title="edit" data-todo-edit="{{ t.id }}"
               style="background:none; border:none; color:var(--muted); cursor:pointer; font-size:.95rem;">✎</button>
     </li>
+    {# starts display:none — inline style would otherwise beat the [hidden]
+       attribute, which is why every editor rendered expanded. JS toggles
+       style.display (flex when open), accordion-style (one at a time). #}
     <form method="post" action="{{ url_for('journal_todo_edit', entry_id=t.id) }}"
-          id="todo-editor-{{ t.id }}" hidden
-          style="background:var(--bg-2,#161b22); border:1px solid var(--border); border-radius:8px; padding:.8rem; margin:.2rem 0 .5rem 1.9rem; display:flex; flex-direction:column; gap:.5rem;">
+          id="todo-editor-{{ t.id }}" data-todo-editor
+          style="display:none; background:var(--bg-2,#161b22); border:1px solid var(--border); border-radius:8px; padding:.8rem; margin:.2rem 0 .5rem 1.9rem; flex-direction:column; gap:.5rem;">
       <input type="text" name="text" value="{{ t.text }}" required placeholder="task"
              style="font:inherit; padding:.4rem; background:var(--bg-3,#1c2128); border:1px solid var(--border); border-radius:6px; color:var(--fg);">
       <textarea name="note" maxlength="{{ todo_note_max }}" rows="2" placeholder="note (max {{ todo_note_max }} — this gets injected, keep it tight)"
@@ -79,19 +82,34 @@
   {% endif %}
 </div>
 <script>
+// Accordion editor: at most one open at a time (otherwise every card balloons).
+// Toggles style.display directly because the inline style defeats [hidden].
 (function () {
   "use strict";
-  function toggle(id, show) {
+  function closeAll() {
+    document.querySelectorAll("[data-todo-editor]").forEach(function (e) {
+      e.style.display = "none";
+    });
+  }
+  function open(id) {
     var ed = document.getElementById("todo-editor-" + id);
     if (!ed) return;
-    ed.hidden = !show;
-    if (show) { var f = ed.querySelector("input,textarea,select"); if (f) f.focus(); }
+    var wasOpen = ed.style.display !== "none";
+    closeAll();
+    if (!wasOpen) {
+      ed.style.display = "flex";
+      var f = ed.querySelector("input,textarea,select"); if (f) f.focus();
+      ed.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
   }
   document.addEventListener("click", function (ev) {
     var o = ev.target.closest("[data-todo-edit]");
-    if (o) { ev.preventDefault(); toggle(o.dataset.todoEdit, true); return; }
+    if (o) { ev.preventDefault(); open(o.dataset.todoEdit); return; }
     var c = ev.target.closest("[data-todo-cancel]");
-    if (c) { ev.preventDefault(); toggle(c.dataset.todoCancel, false); }
+    if (c) { ev.preventDefault(); closeAll(); }
+  });
+  document.addEventListener("keydown", function (ev) {
+    if (ev.key === "Escape") closeAll();
   });
 })();
 </script>
