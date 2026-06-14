@@ -785,6 +785,16 @@ def set_todo_text(entry_id: int, text: str, *, editor: str = "") -> bool:
     return _update_todo(entry_id, {"text": text}, editor=editor)
 
 
+def set_todo_tags(entry_id: int, tags: list[str], *, editor: str = "") -> bool:
+    """Replace a todo's tags (stripped, de-duped, empties dropped)."""
+    seen: list[str] = []
+    for t in tags or []:
+        t = (t or "").strip()
+        if t and t not in seen:
+            seen.append(t)
+    return _update_todo(entry_id, {"tags": seen}, editor=editor)
+
+
 def list_todos(*, status: str | None = "open",
                owner: str | None = None) -> list[dict]:
     """To-do journal entries (kind=='todo'), filtered by status and owner.

@@ -60,3 +60,12 @@ def test_edit_kind_safe(client):
     c.post("/journal/1/todo/edit", data={"text": "a todo", "note": "todo note"})
     moment = next(e for e in store.load_journal() if e["id"] == 1 and e.get("kind") != "todo")
     assert "note" not in moment
+
+
+def test_tags_render_and_edit(client):
+    c, store = client
+    t = store.add_todo("tagged", tags=["infra"])
+    html = c.get("/journal?view=todos").get_data(as_text=True)
+    assert "infra" in html and 'name="tags"' in html
+    c.post(f"/journal/{t['id']}/todo/edit", data={"text": "tagged", "tags": "alpha, beta"})
+    assert next(x for x in store.list_todos() if x["id"] == t["id"])["tags"] == ["alpha", "beta"]

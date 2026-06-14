@@ -362,6 +362,9 @@ def journal_todo_edit(entry_id: int):
         store.set_todo_due(entry_id, f.get("due", ""), editor="web")
     if "flag" in f:
         store.set_todo_flag(entry_id, f.get("flag") in ("1", "true", "on"), editor="web")
+    if "tags" in f:
+        tags = [t.strip() for t in f.get("tags", "").split(",") if t.strip()]
+        store.set_todo_tags(entry_id, tags, editor="web")
     return redirect(url_for("journal_index", view="todos"))
 
 

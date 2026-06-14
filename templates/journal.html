@@ -12,6 +12,7 @@
 
 {% if view == 'todos' %}
 {% set pri_dot = {'high':'#ff7b72','med':'#e3b341','low':'#58a6ff'} %}
+<style>.todo-list { animation: view-fade-in 160ms ease; } @keyframes view-fade-in { from { opacity: 0; } to { opacity: 1; } }</style>
 <div class="todo-list">
   {% if open_todos %}
   <ul style="list-style:none; padding:0; margin:0;">
@@ -27,6 +28,7 @@
       <span style="flex:1; min-width:0; display:flex; flex-direction:column; gap:.1rem;">
         <span>{{ t.text }}</span>
         {% if t.note %}<span style="font-size:.8rem; color:var(--muted); line-height:1.4;">{{ t.note }}</span>{% endif %}
+        {% if t.tags %}<span style="display:inline-flex; gap:.3rem; flex-wrap:wrap; margin-top:.1rem;">{% for tag in t.tags %}<a class="pill" href="{{ url_for('journal_index', q=tag) }}" style="font-size:.72rem; text-decoration:none; background:rgba(45,194,164,0.14); color:#56d4bc; border-color:rgba(45,194,164,0.34);">#{{ tag }}</a>{% endfor %}</span>{% endif %}
       </span>
       {% if t.flag %}<span title="flagged" style="color:#e3b341;">⚑</span>{% endif %}
       {% if t.owner %}<span class="pill">@{{ t.owner }}</span>{% endif %}
@@ -52,6 +54,8 @@
                style="font:inherit; padding:.35rem; background:var(--bg-3,#1c2128); border:1px solid var(--border); border-radius:6px; color:var(--fg);">
         <label style="display:flex; align-items:center; gap:.35rem;"><input type="checkbox" name="flag" value="1" {% if t.flag %}checked{% endif %}> flag</label>
       </div>
+      <input type="text" name="tags" value="{{ t.tags|join(', ') if t.tags else '' }}" placeholder="tags (comma-separated): infra, ui"
+             style="font:inherit; padding:.4rem; background:var(--bg-3,#1c2128); border:1px solid var(--border); border-radius:6px; color:var(--fg);">
       <div style="display:flex; gap:.5rem;">
         <button class="btn-primary" type="submit">save</button>
         <button class="btn btn-ghost" type="button" data-todo-cancel="{{ t.id }}">cancel</button>

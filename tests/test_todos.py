@@ -210,3 +210,21 @@ def test_injection_note_truncated(fresh_store):
     store.add_todo("t", note="z" * 200)
     block = store.format_todos_for_prompt()
     assert "z" * 200 not in block and "zzz" in block
+
+
+def test_add_todo_with_tags(fresh_store):
+    store, _ = fresh_store
+    assert store.add_todo("x", tags=["infra", "ui"])["tags"] == ["infra", "ui"]
+
+
+def test_set_todo_tags_dedup(fresh_store):
+    store, _ = fresh_store
+    t = store.add_todo("x")
+    assert store.set_todo_tags(t["id"], [" a ", "b", "b", ""])
+    assert next(x for x in store.list_todos() if x["id"] == t["id"])["tags"] == ["a", "b"]
+
+
+def test_set_todo_tags_rejects_non_todo(fresh_store):
+    store, _ = fresh_store
+    m = store.add_journal("moment")
+    assert store.set_todo_tags(m["id"], ["x"]) is False

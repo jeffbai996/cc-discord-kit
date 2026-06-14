@@ -730,6 +730,8 @@ def cmd_todo(args: argparse.Namespace) -> int:
                                 editor=editor)
     elif sub == "edit":
         ok = store.set_todo_text(args.id, args.text, editor=editor)
+    elif sub == "tags":
+        ok = store.set_todo_tags(args.id, _parse_csv(args.tags), editor=editor)
     else:
         return 2
     if not ok:
@@ -1108,6 +1110,9 @@ def build_parser() -> argparse.ArgumentParser:
     t_edit = tsub.add_parser("edit", help="edit a to-do's text")
     t_edit.add_argument("id", type=int)
     t_edit.add_argument("text")
+    t_tags = tsub.add_parser("tags", help="replace a to-do's tags (comma-separated)")
+    t_tags.add_argument("id", type=int)
+    t_tags.add_argument("tags", help="comma-separated tags (empty clears)")
 
     fil = top.add_parser("files", help="manage shared files (documents)")
     fsub = fil.add_subparsers(dest="sub", required=True)
