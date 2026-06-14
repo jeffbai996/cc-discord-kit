@@ -149,12 +149,81 @@ def log(msg: str) -> None:
 # Per-channel mode config
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Thread → parent resolution
+# ---------------------------------------------------------------------------
+#
+# A Discord thread is a channel with its own id. Per-channel config
+# (tools.json, narrate.json) is keyed by the *parent* channel id, so a
+# thread inherits nothing of its parent's settings unless we map it back.
+# The thread→parent mapping is immutable (a thread's parent never
+# changes), so we cache it on disk: one Discord API GET per channel id
+# *ever*, then free. We also cache plain channels (parent = "") so a
+# non-thread is never re-queried.
+
+_THREAD_CACHE_PATH = os.path.expanduser(
+    "~/.local/state/cc-discord-kit/thread_parents.json")
+# Discord channel types that are threads: 10 announcement, 11 public, 12
+# private. Everything else is a normal channel with no parent to inherit.
+_THREAD_TYPES = (10, 11, 12)
+
+
+def _load_thread_cache() -> dict:
+    try:
+        with open(_THREAD_CACHE_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _save_thread_cache(cache: dict) -> None:
+    # Lock-free: the cache is shared across co-located bots, but a lost
+    # update only costs a re-query later, never correctness. Atomic
+    # replace keeps the file from ever being half-written.
+    try:
+        os.makedirs(os.path.dirname(_THREAD_CACHE_PATH), exist_ok=True)
+        tmp = f"{_THREAD_CACHE_PATH}.tmp.{os.getpid()}"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(cache, f)
+        os.replace(tmp, _THREAD_CACHE_PATH)
+    except OSError as e:
+        log(f"thread cache write failed: {e}")
+
+
+def channel_parent_id(chat_id: str) -> str | None:
+    """Parent channel id if chat_id is a thread, else None.
+
+    Cached on disk (the mapping is immutable). One Discord API GET per
+    channel id ever; cache hits and plain channels are free. Returns None
+    on any failure (no token, transient API error) — the caller then
+    behaves as if it were a normal channel, so the worst case is "no
+    inheritance this turn", never a crash."""
+    cache = _load_thread_cache()
+    if chat_id in cache:
+        return cache[chat_id] or None
+    token = read_bot_token(detect_discord_state_dir())
+    if not token:
+        return None  # can't resolve yet; don't poison the cache
+    info = _discord_request(
+        "GET", f"https://discord.com/api/v10/channels/{chat_id}", token)
+    if info is None:
+        return None  # transient failure — leave it uncached so we retry
+    parent = ""
+    if info.get("type") in _THREAD_TYPES:
+        parent = str(info.get("parent_id") or "")
+    cache[chat_id] = parent
+    _save_thread_cache(cache)
+    return parent or None
+
+
 def _channel_tools_mode(state_dir: str, chat_id: str) -> str:
     """Resolve the channel's `tools` mode from sibling tools.json.
 
     Used at narrate finalize time to decide whether tool messages
-    should be deleted (collapse) or kept (ticker/diffs/full).
-    Returns 'off' on any missing-file or parse error."""
+    should be deleted (collapse) or kept (ticker/diffs/full). A thread
+    with no explicit entry of its own inherits the parent channel's
+    setting. Returns 'off' on any missing-file or parse error."""
     path = os.path.join(state_dir, "tools.json")
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -163,8 +232,14 @@ def _channel_tools_mode(state_dir: str, chat_id: str) -> str:
         return "off"
     if not isinstance(data, dict):
         return "off"
-    val = data.get(chat_id, "off")
-    return val if isinstance(val, str) else "off"
+    if chat_id in data:
+        val = data[chat_id]
+        return val if isinstance(val, str) else "off"
+    parent = channel_parent_id(chat_id)
+    if parent and parent in data:
+        val = data[parent]
+        return val if isinstance(val, str) else "off"
+    return "off"
 
 
 def _narrate_config_path() -> str:
@@ -174,7 +249,9 @@ def _narrate_config_path() -> str:
 
 
 def channel_mode(chat_id: str) -> str:
-    """Resolve the per-channel narrate mode. Default 'never' (opt-in)."""
+    """Resolve the per-channel narrate mode. Default 'never' (opt-in).
+
+    A thread with no explicit entry inherits the parent channel's mode."""
     path = _narrate_config_path()
     if not os.path.exists(path):
         return "never"
@@ -183,7 +260,11 @@ def channel_mode(chat_id: str) -> str:
             cfg = json.load(f)
     except (OSError, json.JSONDecodeError):
         return "never"
-    val = cfg.get(chat_id, "never")
+    if chat_id in cfg:
+        val = cfg[chat_id]
+    else:
+        parent = channel_parent_id(chat_id)
+        val = cfg.get(parent, "never") if parent else "never"
     # 'auto' is the legacy alias for 'collapse' — accept it for backwards
     # compatibility with narrate.json files that pre-date the rename
     if val == "auto":

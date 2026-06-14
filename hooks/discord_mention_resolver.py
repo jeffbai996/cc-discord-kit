@@ -70,40 +70,79 @@ def _own_name(roster: dict[str, str], own: str) -> str:
     return os.environ.get("CCDK_BOT", "").strip() or "this agent"
 
 
+def _chat_id_from_payload(payload: str) -> str | None:
+    """Pull the inbound Discord chat_id out of the channel tag."""
+    m = re.search(r'source="plugin:discord:discord"[^>]*?chat_id="(\d+)"',
+                  payload) or re.search(
+                  r'chat_id="(\d+)"[^>]*?source="plugin:discord:discord"',
+                  payload)
+    return m.group(1) if m else None
+
+
+def _thread_note(chat_id: str) -> str | None:
+    """One-line orientation note when chat_id is a Discord thread.
+
+    The inbound tag carries only the thread's id, which the model may not
+    recognize as one of its known channels. This tells it the thread's
+    parent and that replying to the thread's own chat_id keeps it
+    in-thread. Cached thread->parent lookup, effectively free after the
+    first turn in a channel."""
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from narrate import channel_parent_id
+        parent = channel_parent_id(chat_id)
+    except Exception:  # noqa: BLE001 -- never block the turn
+        return None
+    if not parent:
+        return None
+    return (f"This message is in a Discord thread under parent channel "
+            f"<#{parent}>. Reply to this thread's chat_id ({chat_id}) to stay "
+            f"in-thread; its tools/narrate settings inherit from the parent.")
+
+
 def main() -> int:
     payload = sys.stdin.read()
 
     if 'source="plugin:discord:discord"' not in payload:
         return 0
 
+    blocks: list[str] = []
+
+    # Thread orientation -- runs whether or not anyone was @mentioned.
+    chat_id = _chat_id_from_payload(payload)
+    if chat_id:
+        note = _thread_note(chat_id)
+        if note:
+            blocks.append(note)
+
     ids_found = re.findall(r"<@!?(\d+)>", payload)
-    if not ids_found:
-        return 0
+    if ids_found:
+        seen: set[str] = set()
+        unique_ids = [i for i in ids_found if not (i in seen or seen.add(i))]  # type: ignore[func-returns-value]
 
-    seen: set[str] = set()
-    unique_ids = [i for i in ids_found if not (i in seen or seen.add(i))]  # type: ignore[func-returns-value]
+        roster = _load_roster()
+        own = _own_id()
+        own_name = _own_name(roster, own)
 
-    roster = _load_roster()
-    own = _own_id()
-    own_name = _own_name(roster, own)
+        lines = ["Discord mentions resolved:"]
+        addressed_names: list[str] = []
+        self_mentioned = False
 
-    lines = ["Discord mentions resolved:"]
-    addressed_names: list[str] = []
-    self_mentioned = False
+        for uid in unique_ids:
+            name = roster.get(uid, f"unknown ({uid})")
+            lines.append(f"  <@{uid}> -> @{name}")
+            addressed_names.append(f"@{name}")
+            if own and uid == own:
+                self_mentioned = True
 
-    for uid in unique_ids:
-        name = roster.get(uid, f"unknown ({uid})")
-        lines.append(f"  <@{uid}> -> @{name}")
-        addressed_names.append(f"@{name}")
-        if own and uid == own:
-            self_mentioned = True
+        if addressed_names:
+            lines.append(f"Addressed: {', '.join(addressed_names)}")
+        if self_mentioned:
+            lines.append(f"WARN You (@{own_name}) were mentioned in this message.")
+        blocks.append("\n".join(lines))
 
-    if addressed_names:
-        lines.append(f"Addressed: {', '.join(addressed_names)}")
-    if self_mentioned:
-        lines.append(f"WARN You (@{own_name}) were mentioned in this message.")
-
-    print("\n".join(lines))
+    if blocks:
+        print("\n\n".join(blocks))
     return 0
 
 

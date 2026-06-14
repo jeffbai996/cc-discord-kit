@@ -327,6 +327,8 @@ The `hooks/` directory has a full set of Claude Code hooks. Wire any subset into
   - **`full`** — diffs + ` ``` ` fenced Bash stdout (secret-stripped).
   - **`off`** — disabled (default).
 
+  **Threads inherit the parent.** A Discord thread is a channel with its own id, but `narrate.json` / `tools.json` are keyed by the parent channel — so a thread with no entry of its own inherits the parent's mode (set it once on the channel, every thread under it follows). Set a mode on a thread's own id to override. The thread→parent lookup is one cached Discord API call per channel id, ever.
+
 - **`agent_view.py`** (PreToolUse / PostToolUse / PostToolUseFailure / Stop) — the **subagent panel**. PreToolUse on `Agent|Task` registers the spawn and forks a detached poller that tails each subagent's transcript (`<session>/subagents/agent-*.jsonl`) for tokens, model, and liveness, live-editing the panel every `CCDK_AGENT_VIEW_TICK` seconds (default 5) until every agent lands. Fully deterministic — hooks and a poller, no model in the display loop.
 
   The panel renders as a **footer on the live tool-trace message**: Discord edits don't reorder messages, so it stays pinned at the visual bottom and migrates automatically when the trace rotates to a fresh segment. No trace to ride (quiet channel)? It posts standalone and reposts itself below anything that displaces it. Lifecycle follows the channel's `tools` mode — `off` no panel, `collapse` deleted with the trace at Stop, `ticker`/`diffs`/`full` frozen in place as the final summary.
