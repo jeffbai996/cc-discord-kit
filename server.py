@@ -262,12 +262,29 @@ def journal_index():
     # (the open/done checklist). Both read journal.json; todos are kind=='todo'.
     view = (request.args.get("view") or "moments").lower()
     if view == "todos":
+        open_todos = store.list_todos(status="open")
+        import datetime as _dt
+        _today = _dt.date.today()
+        for _t in open_todos:
+            _due = (_t.get("due") or "").strip()
+            _t["due_status"] = ""
+            if _due:
+                try:
+                    _d = _dt.date.fromisoformat(_due[:10])
+                    if _d < _today:
+                        _t["due_status"] = "over"
+                    elif (_d - _today).days <= 3:
+                        _t["due_status"] = "soon"
+                except ValueError:
+                    pass
         return render_template(
             "journal.html",
             view="todos",
             entries=[],
-            open_todos=store.list_todos(status="open"),
+            open_todos=open_todos,
             done_todos=store.list_todos(status="done"),
+            todo_priorities=store.TODO_PRIORITIES,
+            todo_note_max=store.TODO_NOTE_MAX,
             days=0, q="", semantic=False,
             semantic_available=False, semantic_scores={}, semantic_warning="",
         )
@@ -326,6 +343,25 @@ def journal_todo_status(entry_id: int):
     status = (request.form.get("status") or "done").lower()
     if status in store.TODO_STATUSES:
         store.set_todo_status(entry_id, status, editor="web")
+    return redirect(url_for("journal_index", view="todos"))
+
+
+@app.route("/journal/<int:entry_id>/todo/edit", methods=["POST"])
+def journal_todo_edit(entry_id: int):
+    """Inline edit of a todo's fields (text/note/priority/due/flag). Each field
+    is applied only when present in the form, so a partial form doesn't blank
+    the rest. Kind-safe in the store layer (won't touch a moment)."""
+    f = request.form
+    if "text" in f and f.get("text", "").strip():
+        store.set_todo_text(entry_id, f["text"], editor="web")
+    if "note" in f:
+        store.set_todo_note(entry_id, f.get("note", ""), editor="web")
+    if "priority" in f:
+        store.set_todo_priority(entry_id, f.get("priority", "none"), editor="web")
+    if "due" in f:
+        store.set_todo_due(entry_id, f.get("due", ""), editor="web")
+    if "flag" in f:
+        store.set_todo_flag(entry_id, f.get("flag") in ("1", "true", "on"), editor="web")
     return redirect(url_for("journal_index", view="todos"))
 
 

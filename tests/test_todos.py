@@ -130,3 +130,83 @@ def test_set_status_on_nonexistent_todo_is_false(fresh_store):
     store, _ = fresh_store
     store.add_journal("just a moment")
     assert store.set_todo_status(1, "done") is False
+
+
+# ── Apple-Reminders revamp: note / priority / flag / inline edits ───────────
+
+def test_add_todo_with_note_priority_flag(fresh_store):
+    store, _ = fresh_store
+    t = store.add_todo("ship it", note="clarify: only prod", priority="high", flag=True)
+    assert t["note"] == "clarify: only prod"
+    assert t["priority"] == "high" and t["flag"] is True
+
+
+def test_todo_defaults(fresh_store):
+    store, _ = fresh_store
+    t = store.add_todo("bare")
+    assert t.get("note", "") == "" and t.get("priority", "none") == "none"
+    assert t.get("flag", False) is False
+
+
+def test_note_is_capped(fresh_store):
+    store, _ = fresh_store
+    t = store.add_todo("c", note="x" * 500)
+    assert len(t["note"]) == store.TODO_NOTE_MAX == 280
+
+
+def test_set_todo_note_and_cap(fresh_store):
+    store, _ = fresh_store
+    t = store.add_todo("a")
+    assert store.set_todo_note(t["id"], "later")
+    assert next(x for x in store.list_todos() if x["id"] == t["id"])["note"] == "later"
+    store.set_todo_note(t["id"], "y" * 999)
+    assert len(next(x for x in store.list_todos() if x["id"] == t["id"])["note"]) == store.TODO_NOTE_MAX
+
+
+def test_set_priority_valid_invalid(fresh_store):
+    store, _ = fresh_store
+    t = store.add_todo("a")
+    assert store.set_todo_priority(t["id"], "med")
+    assert store.set_todo_priority(t["id"], "nope") is False
+
+
+def test_set_flag_due_text(fresh_store):
+    store, _ = fresh_store
+    t = store.add_todo("a")
+    assert store.set_todo_flag(t["id"], True)
+    assert store.set_todo_due(t["id"], "2026-08-01")
+    assert store.set_todo_text(t["id"], "b")
+    got = next(x for x in store.list_todos() if x["id"] == t["id"])
+    assert got["flag"] is True and got["due"] == "2026-08-01" and got["text"] == "b"
+
+
+def test_setters_reject_non_todo(fresh_store):
+    store, _ = fresh_store
+    m = store.add_journal("moment")
+    assert store.set_todo_note(m["id"], "x") is False
+    assert store.set_todo_priority(m["id"], "high") is False
+    assert "note" not in next(e for e in store.load_journal() if e["id"] == m["id"])
+
+
+def test_injection_bare_unchanged(fresh_store):
+    store, _ = fresh_store
+    store.add_todo("plain")
+    line = [l for l in store.format_todos_for_prompt().splitlines() if "plain" in l][0]
+    assert "[!" not in line and "⚑" not in line and "·" not in line
+
+
+def test_injection_rich_and_sorted(fresh_store):
+    store, _ = fresh_store
+    store.add_todo("low one", priority="low")
+    store.add_todo("high one", priority="high", flag=True, note="detail here")
+    block = store.format_todos_for_prompt()
+    lines = [l for l in block.splitlines() if l.strip().startswith("☐")]
+    assert "high one" in lines[0]      # high sorts first
+    assert "[!!!]" in lines[0] and "⚑" in lines[0] and "detail here" in lines[0]
+
+
+def test_injection_note_truncated(fresh_store):
+    store, _ = fresh_store
+    store.add_todo("t", note="z" * 200)
+    block = store.format_todos_for_prompt()
+    assert "z" * 200 not in block and "zzz" in block

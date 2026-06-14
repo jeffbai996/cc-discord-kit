@@ -648,10 +648,14 @@ def _fmt_size(n: int) -> str:
 
 def cmd_todo(args: argparse.Namespace) -> int:
     sub = args.sub
+    editor = getattr(args, "actor", "") or ""
     if sub == "add":
         e = store.add_todo(args.text, owner=args.owner, due=args.due,
-                           actor=args.actor or "", source=args.source or "cli",
-                           tags=_parse_csv(args.tags))
+                           actor=editor, source=args.source or "cli",
+                           tags=_parse_csv(args.tags),
+                           note=getattr(args, "note", "") or "",
+                           priority=getattr(args, "priority", "none"),
+                           flag=getattr(args, "flag", False))
         print(f"Added to-do #{e['id']}")
         _post_card_if_discord({"kind": "todo_added", "entry": e}, args)
         return 0
@@ -664,10 +668,35 @@ def cmd_todo(args: argparse.Namespace) -> int:
         for t in todos:
             mark = {"open": "☐", "done": "☑", "cancelled": "✗"}.get(
                 t.get("status", "open"), "☐")
+            pri = store._TODO_PRI_MARK.get(t.get("priority", "none"), "")
+            flag = "⚑" if t.get("flag") else ""
+            badge = (" " + " ".join(b for b in (pri, flag) if b)) if (pri or flag) else ""
             owner = f" @{t['owner']}" if t.get("owner") else ""
             due = f" (due {t['due']})" if t.get("due") else ""
             first = (t.get("text", "").splitlines() or [""])[0][:100]
-            print(f"{mark} #{t['id']}{owner}{due}  {first}")
+            note = " 📝" if t.get("note") else ""
+            print(f"{mark} #{t['id']}{badge}{owner}{due}  {first}{note}")
+        return 0
+    if sub == "show":
+        t = next((x for x in store.load_todos() if x["id"] == args.id), None)
+        if not t:
+            print(f"To-do #{args.id} not found", file=sys.stderr)
+            return 1
+        print(f"=== To-do #{t['id']} ===")
+        print(f"Status:   {t.get('status', 'open')}")
+        print(f"Priority: {t.get('priority', 'none')}")
+        print(f"Flag:     {'⚑ flagged' if t.get('flag') else '—'}")
+        if t.get("owner"):
+            print(f"Owner:    @{t['owner']}")
+        if t.get("due"):
+            print(f"Due:      {t['due']}")
+        if t.get("tags"):
+            print(f"Tags:     {', '.join(t['tags'])}")
+        print()
+        print(t.get("text", ""))
+        if t.get("note"):
+            print()
+            print(f"Note: {t['note']}")
         return 0
     if sub in ("done", "cancel", "reopen"):
         target = {"done": "done", "cancel": "cancelled", "reopen": "open"}[sub]
@@ -675,7 +704,7 @@ def cmd_todo(args: argparse.Namespace) -> int:
         if not e:
             print(f"To-do #{args.id} not found", file=sys.stderr)
             return 1
-        if not store.set_todo_status(args.id, target):
+        if not store.set_todo_status(args.id, target, editor=editor):
             print(f"To-do #{args.id} update failed", file=sys.stderr)
             return 1
         print(f"To-do #{args.id} → {target}")
@@ -683,7 +712,31 @@ def cmd_todo(args: argparse.Namespace) -> int:
             {"kind": "todo_status", "id": args.id, "status": target,
              "text": e.get("text", "")}, args)
         return 0
-    return 2
+    if sub == "note":
+        ok = store.set_todo_note(args.id, args.text, editor=editor)
+    elif sub == "priority":
+        ok = store.set_todo_priority(args.id, args.level, editor=editor)
+        if not ok:
+            print(f"Invalid priority {args.level!r} (choose: "
+                  f"{', '.join(store.TODO_PRIORITIES)}) or unknown to-do",
+                  file=sys.stderr)
+            return 1
+    elif sub == "flag":
+        ok = store.set_todo_flag(args.id, True, editor=editor)
+    elif sub == "unflag":
+        ok = store.set_todo_flag(args.id, False, editor=editor)
+    elif sub == "due":
+        ok = store.set_todo_due(args.id, "" if args.date == "clear" else args.date,
+                                editor=editor)
+    elif sub == "edit":
+        ok = store.set_todo_text(args.id, args.text, editor=editor)
+    else:
+        return 2
+    if not ok:
+        print(f"To-do #{args.id} not found", file=sys.stderr)
+        return 1
+    print(f"To-do #{args.id} updated ({sub})")
+    return 0
 
 
 def cmd_files(args: argparse.Namespace) -> int:
@@ -1020,18 +1073,41 @@ def build_parser() -> argparse.ArgumentParser:
     t_add.add_argument("--source", default="cli")
     t_add.add_argument("--actor", default="")
     t_add.add_argument("--tags", default="")
+    t_add.add_argument("--note", default="",
+                       help=f"short clarifying note (capped {store.TODO_NOTE_MAX} chars)")
+    t_add.add_argument("--priority", default="none", choices=list(store.TODO_PRIORITIES),
+                       help="priority (sorts high→none)")
+    t_add.add_argument("--flag", action="store_true", help="flag (star) the to-do")
     _add_discord_flags(t_add)
     t_list = tsub.add_parser("list", help="list to-dos (open by default)")
     t_list.add_argument("--status", default="open",
                         choices=["open", "done", "cancelled", "all"])
     t_list.add_argument("--owner", default=None,
                         help="filter to an owner (incl. unassigned)")
+    t_show = tsub.add_parser("show", help="full detail of one to-do (incl. note)")
+    t_show.add_argument("id", type=int)
     for _tn, _th in (("done", "mark a to-do done"),
                      ("cancel", "cancel a to-do"),
                      ("reopen", "reopen a to-do")):
         _tp = tsub.add_parser(_tn, help=_th)
         _tp.add_argument("id", type=int)
         _add_discord_flags(_tp)
+    t_note = tsub.add_parser("note", help="set/replace a to-do's clarifying note")
+    t_note.add_argument("id", type=int)
+    t_note.add_argument("text", help=f"note text (capped {store.TODO_NOTE_MAX} chars)")
+    t_pri = tsub.add_parser("priority", help="set a to-do's priority")
+    t_pri.add_argument("id", type=int)
+    t_pri.add_argument("level", choices=list(store.TODO_PRIORITIES))
+    t_flag = tsub.add_parser("flag", help="flag (star) a to-do")
+    t_flag.add_argument("id", type=int)
+    t_unflag = tsub.add_parser("unflag", help="remove a to-do's flag")
+    t_unflag.add_argument("id", type=int)
+    t_due = tsub.add_parser("due", help="set or clear a to-do's due date")
+    t_due.add_argument("id", type=int)
+    t_due.add_argument("date", help="due date, or 'clear' to remove it")
+    t_edit = tsub.add_parser("edit", help="edit a to-do's text")
+    t_edit.add_argument("id", type=int)
+    t_edit.add_argument("text")
 
     fil = top.add_parser("files", help="manage shared files (documents)")
     fsub = fil.add_subparsers(dest="sub", required=True)

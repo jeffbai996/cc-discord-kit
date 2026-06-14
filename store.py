@@ -683,6 +683,16 @@ def add_journal(text: str, *, source: str = "", actor: str = "",
 
 TODO_STATUSES = ("open", "done", "cancelled")
 
+# Apple-Reminders-style fields. Priority sorts open todos (high→none) above the
+# old due/id ordering; flag is a boolean star that floats within a priority.
+TODO_PRIORITIES = ("none", "low", "med", "high")
+# Note clarifies a todo. CAPPED because open todos inject into every turn's
+# context — an unbounded note would bloat the prompt. 280 (tweet-length).
+TODO_NOTE_MAX = 280
+_TODO_PRI_MARK = {"high": "[!!!]", "med": "[!!]", "low": "[!]", "none": ""}
+_TODO_PRI_RANK = {"high": 0, "med": 1, "low": 2, "none": 3}
+_TODO_NOTE_INJECT_PREVIEW = 60
+
 
 def load_todos() -> list[dict]:
     return list_todos(status=None)
@@ -699,11 +709,17 @@ def _next_todo_id(raw: list[dict]) -> int:
 
 def add_todo(text: str, *, owner: str = "", due: str = "",
              actor: str = "", source: str = "cli",
-             tags: list[str] | None = None) -> dict:
+             tags: list[str] | None = None,
+             note: str = "", priority: str = "none",
+             flag: bool = False) -> dict:
     """Add an open to-do. Stored in journal.json (kind='todo') but with a
     todo-LOCAL id (see _next_todo_id), NOT a journal-counter id — so todos never
     pollute journal numbering. Appended directly (not via _journal.add) so the
-    journal watermark is left untouched."""
+    journal watermark is left untouched.
+
+    Apple-Reminders fields: note (capped at TODO_NOTE_MAX — it can reach the
+    per-turn injection), priority (one of TODO_PRIORITIES, else 'none'), flag."""
+    pri = priority if priority in TODO_PRIORITIES else "none"
     raw = _journal._load_raw()
     entry = {
         "id": _next_todo_id(raw),
@@ -717,10 +733,56 @@ def add_todo(text: str, *, owner: str = "", due: str = "",
         "tags": list(tags) if tags else [],
         "title": "",
         "text": _strip_rendered_header(text.strip()),
+        "note": (note or "").strip()[:TODO_NOTE_MAX],
+        "priority": pri,
+        "flag": bool(flag),
     }
     raw.append(entry)
     _journal.save(raw)
     return entry
+
+
+def _update_todo(entry_id: int, fields: dict, *, editor: str = "") -> bool:
+    """Apply `fields` to the todo with `entry_id` IN PLACE, matched by
+    (id AND kind=='todo'). Todo ids overlap journal-moment ids, so an id-only
+    match would clobber a moment — the shared kind-safe writer behind every
+    todo field setter (note/priority/flag/due/text/status)."""
+    if editor:
+        fields = {**fields, "last_editor": editor}
+    raw = _journal._load_raw()
+    for e in raw:
+        if (e.get("id") == entry_id and e.get("kind") == "todo"
+                and not e.get("deleted")):
+            e.update(fields)
+            _journal.save(raw)
+            return True
+    return False
+
+
+def set_todo_note(entry_id: int, note: str, *, editor: str = "") -> bool:
+    return _update_todo(entry_id, {"note": (note or "").strip()[:TODO_NOTE_MAX]},
+                        editor=editor)
+
+
+def set_todo_priority(entry_id: int, priority: str, *, editor: str = "") -> bool:
+    if priority not in TODO_PRIORITIES:
+        return False
+    return _update_todo(entry_id, {"priority": priority}, editor=editor)
+
+
+def set_todo_flag(entry_id: int, flag: bool, *, editor: str = "") -> bool:
+    return _update_todo(entry_id, {"flag": bool(flag)}, editor=editor)
+
+
+def set_todo_due(entry_id: int, due: str, *, editor: str = "") -> bool:
+    return _update_todo(entry_id, {"due": (due or "").strip()}, editor=editor)
+
+
+def set_todo_text(entry_id: int, text: str, *, editor: str = "") -> bool:
+    text = _strip_rendered_header((text or "").strip())
+    if not text:
+        return False
+    return _update_todo(entry_id, {"text": text}, editor=editor)
 
 
 def list_todos(*, status: str | None = "open",
@@ -754,16 +816,7 @@ def set_todo_status(entry_id: int, status: str, *, editor: str = "") -> bool:
     fields: dict = {"status": status}
     fields["closed_ts"] = (datetime.now(timezone.utc).isoformat()
                            if status in ("done", "cancelled") else "")
-    if editor:
-        fields["last_editor"] = editor
-    raw = _journal._load_raw()
-    for e in raw:
-        if (e.get("id") == entry_id and e.get("kind") == "todo"
-                and not e.get("deleted")):
-            e.update(fields)
-            _journal.save(raw)
-            return True
-    return False
+    return _update_todo(entry_id, fields, editor=editor)
 
 
 def format_todos_for_prompt(*, max_items: int = 10,
@@ -772,14 +825,27 @@ def format_todos_for_prompt(*, max_items: int = 10,
     todos = list_todos(status="open", owner=owner)
     if not todos:
         return ""
-    todos = sorted(todos, key=lambda e: (e.get("due") or "~", e.get("id", 0)))
+    # Sort: priority (high→none), flagged above unflagged, due (soonest), id.
+    todos = sorted(todos, key=lambda e: (
+        _TODO_PRI_RANK.get(e.get("priority", "none"), 3),
+        0 if e.get("flag") else 1,
+        e.get("due") or "~",
+        e.get("id", 0),
+    ))
     extra = len(todos) - max_items
     todos = todos[:max_items]
-    # Checklist style — no visible ids (todos read as a list, not numbered
-    # entries). Close one via the /journal to-do view, or `cc-discord-kit todo
-    # list` to get the internal id then `todo done <id>`.
+    # Checklist style — no visible ids. Priority marker, flag, owner/due, and a
+    # SHORT note preview are each appended only when set, so a bare todo's line
+    # is unchanged and the injection stays lean.
     lines = ["OPEN TODOS:"]
     for t in todos:
+        pre = []
+        pri = _TODO_PRI_MARK.get(t.get("priority", "none"), "")
+        if pri:
+            pre.append(pri)
+        if t.get("flag"):
+            pre.append("⚑")
+        prefix = (" ".join(pre) + " ") if pre else ""
         bits = []
         if t.get("owner"):
             bits.append(f"@{t['owner']}")
@@ -787,7 +853,14 @@ def format_todos_for_prompt(*, max_items: int = 10,
             bits.append(f"due {t['due']}")
         meta = (" " + " ".join(f"[{b}]" for b in bits)) if bits else ""
         text = re.sub(r"\s+", " ", t.get("text", "")).strip()[:100]
-        lines.append(f"  ☐ {text}{meta}")
+        note = re.sub(r"\s+", " ", (t.get("note") or "")).strip()
+        note_preview = ""
+        if note:
+            n = note[:_TODO_NOTE_INJECT_PREVIEW]
+            if len(note) > _TODO_NOTE_INJECT_PREVIEW:
+                n += "…"
+            note_preview = f" · {n}"
+        lines.append(f"  ☐ {prefix}{text}{meta}{note_preview}")
     if extra > 0:
         lines.append(f"  … +{extra} more (`cc-discord-kit todo list`)")
     return "\n".join(lines)
