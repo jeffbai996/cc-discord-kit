@@ -91,3 +91,42 @@ def test_prompt_block_caps_and_counts_overflow(fresh_store):
     bullets = [l for l in block.splitlines() if l.strip().startswith("☐")]
     assert len(bullets) == 10
     assert "+3 more" in block
+
+
+# ── todos own a SEPARATE id space from journal moments ──────────────────────
+
+def test_todos_do_not_advance_journal_counter(fresh_store):
+    """Adding todos must NOT inflate the journal moment id."""
+    store, _ = fresh_store
+    m1 = store.add_journal("first moment")
+    store.add_todo("t1"); store.add_todo("t2"); store.add_todo("t3")
+    m2 = store.add_journal("second moment")
+    assert m2["id"] == m1["id"] + 1
+
+
+def test_todo_ids_are_their_own_sequence(fresh_store):
+    store, _ = fresh_store
+    store.add_journal("moment a"); store.add_journal("moment b")
+    t1 = store.add_todo("todo one")
+    t2 = store.add_todo("todo two")
+    assert t1["id"] == 1 and t2["id"] == 2
+
+
+def test_todo_id_overlaps_moment_id_without_collision_on_status(fresh_store):
+    store, _ = fresh_store
+    m = store.add_journal("moment with id 1")
+    t = store.add_todo("todo with id 1")
+    assert m["id"] == t["id"] == 1
+    assert store.set_todo_status(t["id"], "done")
+    moment = next(e for e in store.load_journal()
+                  if e["id"] == 1 and e.get("kind") != "todo")
+    assert moment.get("status") in (None, "")
+    todo = next(e for e in store.load_journal()
+                if e["id"] == 1 and e.get("kind") == "todo")
+    assert todo["status"] == "done"
+
+
+def test_set_status_on_nonexistent_todo_is_false(fresh_store):
+    store, _ = fresh_store
+    store.add_journal("just a moment")
+    assert store.set_todo_status(1, "done") is False

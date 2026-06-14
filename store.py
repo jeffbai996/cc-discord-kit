@@ -173,9 +173,14 @@ class JsonStore:
         keeps that guarantee even after tombstones are purged from the file.
         Pre-fix installs have no sidecar (reads as 0) and fall back cleanly to
         max-over-entries; the sidecar is (re)created on the next add().
+
+        Todos (kind=='todo') are EXCLUDED from the max: they live in journal.json
+        for storage convenience but own a SEPARATE id space (see add_todo), so a
+        journal moment's id is never inflated by todos.
         """
         raw = self._load_raw()
-        max_entry = max((e.get("id", 0) for e in raw), default=0)
+        max_entry = max((e.get("id", 0) for e in raw
+                         if e.get("kind") != "todo"), default=0)
         return max(max_entry, self._read_watermark()) + 1
 
     def add(self, extra_fields: dict) -> dict:
@@ -683,11 +688,26 @@ def load_todos() -> list[dict]:
     return list_todos(status=None)
 
 
+def _next_todo_id(raw: list[dict]) -> int:
+    """Todo-local id: 1 + max over existing todo ids. Todos own a SEPARATE id
+    space from journal moments (they happen to share journal.json for storage),
+    so adding a todo never advances the journal counter and never collides with
+    a moment id. Small bounded list — recompute is fine, no watermark needed."""
+    return max((e.get("id", 0) for e in raw if e.get("kind") == "todo"),
+               default=0) + 1
+
+
 def add_todo(text: str, *, owner: str = "", due: str = "",
              actor: str = "", source: str = "cli",
              tags: list[str] | None = None) -> dict:
-    """Add an open to-do (a journal entry with kind='todo')."""
-    return _journal.add({
+    """Add an open to-do. Stored in journal.json (kind='todo') but with a
+    todo-LOCAL id (see _next_todo_id), NOT a journal-counter id — so todos never
+    pollute journal numbering. Appended directly (not via _journal.add) so the
+    journal watermark is left untouched."""
+    raw = _journal._load_raw()
+    entry = {
+        "id": _next_todo_id(raw),
+        "ts": datetime.now(timezone.utc).isoformat(),
         "kind": "todo",
         "status": "open",
         "owner": owner.strip(),
@@ -697,7 +717,10 @@ def add_todo(text: str, *, owner: str = "", due: str = "",
         "tags": list(tags) if tags else [],
         "title": "",
         "text": _strip_rendered_header(text.strip()),
-    })
+    }
+    raw.append(entry)
+    _journal.save(raw)
+    return entry
 
 
 def list_todos(*, status: str | None = "open",
@@ -720,18 +743,27 @@ def list_todos(*, status: str | None = "open",
 
 
 def set_todo_status(entry_id: int, status: str, *, editor: str = "") -> bool:
-    """Flip a todo's status (open/done/cancelled). Stamps closed_ts on close."""
+    """Flip a todo's status (open/done/cancelled). Stamps closed_ts on close.
+
+    Matches by (id AND kind=='todo'), NOT id alone — todos own a separate id
+    space (1..N) that OVERLAPS journal-moment ids, so an id-only update would
+    clobber the moment sharing that number. We write in place rather than
+    delegating to _journal.update (which matches by id alone)."""
     if status not in TODO_STATUSES:
-        return False
-    e = next((x for x in load_journal() if x.get("id") == entry_id), None)
-    if not e or e.get("kind") != "todo":
         return False
     fields: dict = {"status": status}
     fields["closed_ts"] = (datetime.now(timezone.utc).isoformat()
                            if status in ("done", "cancelled") else "")
     if editor:
         fields["last_editor"] = editor
-    return _journal.update(entry_id, fields)
+    raw = _journal._load_raw()
+    for e in raw:
+        if (e.get("id") == entry_id and e.get("kind") == "todo"
+                and not e.get("deleted")):
+            e.update(fields)
+            _journal.save(raw)
+            return True
+    return False
 
 
 def format_todos_for_prompt(*, max_items: int = 10,
