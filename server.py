@@ -369,6 +369,13 @@ def journal_todo_edit(entry_id: int):
     return redirect(url_for("journal_index", view="todos"))
 
 
+@app.route("/journal/<int:entry_id>/todo/delete", methods=["POST"])
+def journal_todo_delete(entry_id: int):
+    """Soft-delete a todo from the todo-view (kind-safe; moves to trash)."""
+    store.delete_todo(entry_id)
+    return redirect(url_for("journal_index", view="todos"))
+
+
 @app.route("/memory/<int:memory_id>", methods=["GET", "POST"])
 def memory_detail(memory_id: int):
     m = next((x for x in store.load_memories() if x.get("id") == memory_id), None)

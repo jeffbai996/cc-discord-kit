@@ -228,3 +228,11 @@ def test_set_todo_tags_rejects_non_todo(fresh_store):
     store, _ = fresh_store
     m = store.add_journal("moment")
     assert store.set_todo_tags(m["id"], ["x"]) is False
+
+
+def test_delete_todo_soft_kind_safe(fresh_store):
+    store, _ = fresh_store
+    t = store.add_todo("gone"); m = store.add_journal("moment")
+    assert store.delete_todo(t["id"]) is True
+    assert not any(x["id"] == t["id"] for x in store.list_todos())
+    assert store.delete_todo(m["id"]) is False

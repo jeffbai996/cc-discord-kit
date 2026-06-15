@@ -69,3 +69,13 @@ def test_tags_render_and_edit(client):
     assert "infra" in html and 'name="tags"' in html
     c.post(f"/journal/{t['id']}/todo/edit", data={"text": "tagged", "tags": "alpha, beta"})
     assert next(x for x in store.list_todos() if x["id"] == t["id"])["tags"] == ["alpha", "beta"]
+
+
+def test_done_delete_routes(client):
+    c, store = client
+    t = store.add_todo("x")
+    assert c.post(f"/journal/{t['id']}/todo", data={"status": "done"}).status_code == 302
+    t2 = store.add_todo("y")
+    assert c.post(f"/journal/{t2['id']}/todo/delete").status_code == 302
+    assert not any(e["id"] == t2["id"] for e in store.list_todos())
+    assert "data-ck-delete" in c.get("/journal?view=todos").get_data(as_text=True)

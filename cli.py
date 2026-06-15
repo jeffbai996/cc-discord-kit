@@ -732,6 +732,10 @@ def cmd_todo(args: argparse.Namespace) -> int:
         ok = store.set_todo_text(args.id, args.text, editor=editor)
     elif sub == "tags":
         ok = store.set_todo_tags(args.id, _parse_csv(args.tags), editor=editor)
+    elif sub == "delete":
+        if store.delete_todo(args.id):
+            print(f"To-do #{args.id} deleted"); return 0
+        print(f"To-do #{args.id} not found", file=sys.stderr); return 1
     else:
         return 2
     if not ok:
@@ -1113,6 +1117,8 @@ def build_parser() -> argparse.ArgumentParser:
     t_tags = tsub.add_parser("tags", help="replace a to-do's tags (comma-separated)")
     t_tags.add_argument("id", type=int)
     t_tags.add_argument("tags", help="comma-separated tags (empty clears)")
+    t_del = tsub.add_parser("delete", help="delete a to-do (soft, moves to trash)")
+    t_del.add_argument("id", type=int)
 
     fil = top.add_parser("files", help="manage shared files (documents)")
     fsub = fil.add_subparsers(dest="sub", required=True)

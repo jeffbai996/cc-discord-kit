@@ -70,6 +70,7 @@
           <label style="display:inline-flex; align-items:center; gap:.3rem; cursor:pointer; font-size:.8rem;"><input type="checkbox" name="flag" value="1" {% if t.flag %}checked{% endif %}> ⚑ flag</label>
           <button class="btn-primary ck-btn-sm" type="submit" style="padding:.28rem .7rem; font-size:.78rem;">save</button>
           <button class="btn btn-ghost ck-btn-sm" type="button" data-ck-cancel style="padding:.28rem .7rem; font-size:.78rem;">cancel</button>
+          <button class="ck-btn-sm" type="button" data-ck-delete="{{ t.id }}" title="delete to-do" style="padding:.28rem .7rem; font-size:.78rem; background:transparent; border:1px solid rgba(248,81,73,.35); color:#ff7b72; border-radius:6px; cursor:pointer;">🗑 delete</button>
         </div>
       </div>
       <span class="ck-meta ck-readonly">
@@ -107,7 +108,10 @@
 // textarea, control strip via the .ck-editing class). Accordion (one open).
 (function () {
   "use strict";
-  var STATUS_BASE = "{{ url_for('journal_todo_status', entry_id=0)[:-1] }}";
+  // template URL with /0/ placeholder — swap the id in (don't [:-1]: id is
+  // mid-path /journal/<id>/todo, trimming the last char gave a 404).
+  var STATUS_TMPL = "{{ url_for('journal_todo_status', entry_id=0) }}";
+  function statusUrl(id) { return STATUS_TMPL.replace("/0/", "/" + id + "/"); }
   function closeAll() {
     document.querySelectorAll(".ck-card.ck-editing").forEach(function (c) {
       c.classList.remove("ck-editing");
@@ -129,9 +133,17 @@
     if (done) {
       ev.preventDefault();
       var f = document.createElement("form");
-      f.method = "post"; f.action = STATUS_BASE + done.dataset.ckDone + "/todo";
+      f.method = "post"; f.action = statusUrl(done.dataset.ckDone);
       f.innerHTML = '<input type="hidden" name="status" value="done">';
       document.body.appendChild(f); f.submit(); return;
+    }
+    var del = ev.target.closest("[data-ck-delete]");
+    if (del) {
+      ev.preventDefault();
+      if (!confirm("Delete this to-do? It moves to trash.")) return;
+      var df = document.createElement("form");
+      df.method = "post"; df.action = statusUrl(del.dataset.ckDelete).replace("/todo", "/todo/delete");
+      document.body.appendChild(df); df.submit(); return;
     }
     if (ev.target.closest("[data-ck-cancel]")) { ev.preventDefault(); closeAll(); return; }
     var chip = ev.target.closest("[data-ck-chip]");

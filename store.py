@@ -795,6 +795,20 @@ def set_todo_tags(entry_id: int, tags: list[str], *, editor: str = "") -> bool:
     return _update_todo(entry_id, {"tags": seen}, editor=editor)
 
 
+def delete_todo(entry_id: int) -> bool:
+    """Soft-delete a todo (tombstone), matched by (id AND kind=='todo') so it
+    can't tombstone a journal moment sharing the id."""
+    raw = _journal._load_raw()
+    for e in raw:
+        if (e.get("id") == entry_id and e.get("kind") == "todo"
+                and not e.get("deleted")):
+            e["deleted"] = True
+            e["deleted_ts"] = datetime.now(timezone.utc).isoformat()
+            _journal.save(raw)
+            return True
+    return False
+
+
 def list_todos(*, status: str | None = "open",
                owner: str | None = None) -> list[dict]:
     """To-do journal entries (kind=='todo'), filtered by status and owner.
