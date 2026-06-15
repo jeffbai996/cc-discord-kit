@@ -56,7 +56,7 @@
         <span class="ck-title">{{ t.text }}</span>
         <input class="ck-title-input" type="text" name="text" value="{{ t.text }}" required maxlength="500" autocomplete="off">
         <span class="ck-note{% if not t.note %} empty{% endif %}">{{ t.note or 'add a note…' }}</span>
-        <textarea class="ck-note-input" name="note" maxlength="{{ todo_note_max }}" rows="2" placeholder="add a note… ({{ todo_note_max }} max — gets injected)">{{ t.note or '' }}</textarea>
+        <textarea class="ck-note-input" name="note" maxlength="{{ todo_note_max }}" rows="2" placeholder="add a note…">{{ t.note or '' }}</textarea>
         {% if t.tags %}<span class="ck-readonly" style="display:inline-flex; gap:.3rem; flex-wrap:wrap; margin-top:.1rem;">{% for tag in t.tags %}<a class="pill ck-tag" href="{{ url_for('journal_index', q=tag) }}">#{{ tag }}</a>{% endfor %}</span>{% endif %}
         <div class="ck-controls">
           <span class="ck-prigrp">
@@ -65,12 +65,11 @@
           </span>
           <input class="ck-inp" type="text" name="due" value="{{ t.due or '' }}" placeholder="due — 2026-07-01" autocomplete="off" style="width:11rem;">
           <input class="ck-inp" type="text" name="tags" value="{{ t.tags|join(', ') if t.tags else '' }}" placeholder="tags — infra, ui" autocomplete="off" style="flex:1; min-width:9rem;">
+          <span class="ck-count" style="margin-left:auto; font-size:.72rem; color:var(--muted); white-space:nowrap;">0/{{ todo_note_max }}</span>
           <input type="hidden" name="flag" value="0">
           <label style="display:inline-flex; align-items:center; gap:.3rem; cursor:pointer; font-size:.8rem;"><input type="checkbox" name="flag" value="1" {% if t.flag %}checked{% endif %}> ⚑ flag</label>
-          <span style="display:inline-flex; gap:.4rem; margin-left:auto;">
-            <button class="btn-primary" type="submit">save</button>
-            <button class="btn btn-ghost" type="button" data-ck-cancel>cancel</button>
-          </span>
+          <button class="btn-primary ck-btn-sm" type="submit" style="padding:.28rem .7rem; font-size:.78rem;">save</button>
+          <button class="btn btn-ghost ck-btn-sm" type="button" data-ck-cancel style="padding:.28rem .7rem; font-size:.78rem;">cancel</button>
         </div>
       </div>
       <span class="ck-meta ck-readonly">
@@ -119,6 +118,8 @@
     closeAll();
     if (was) return;
     card.classList.add("ck-editing");
+    var na = card.querySelector(".ck-note-input"), out = card.querySelector(".ck-count");
+    if (na && out) out.textContent = na.value.length + "/" + (na.getAttribute("maxlength") || "280");
     var ti = card.querySelector(".ck-title-input");
     if (ti) { ti.focus(); ti.setSelectionRange(ti.value.length, ti.value.length); }
     card.scrollIntoView({ block: "nearest", behavior: "smooth" });
@@ -144,7 +145,18 @@
     if (ev.target.closest(".ck-controls, .ck-title-input, .ck-note-input")) return;
     if (ev.target.closest("a")) return;
     var body = ev.target.closest("[data-ck-open]");
-    if (body) { ev.preventDefault(); expand(body.closest(".ck-card")); }
+    if (body) { ev.preventDefault(); expand(body.closest(".ck-card")); return; }
+    if (!ev.target.closest(".ck-card")) closeAll();   // click outside → collapse
+  });
+  // live note char counter
+  document.addEventListener("input", function (ev) {
+    if (ev.target.classList && ev.target.classList.contains("ck-note-input")) {
+      var card = ev.target.closest(".ck-card");
+      var out = card.querySelector(".ck-count");
+      var max = ev.target.getAttribute("maxlength") || "280";
+      if (out) { out.textContent = ev.target.value.length + "/" + max;
+                 out.style.color = ev.target.value.length >= +max ? "#ff7b72" : ""; }
+    }
   });
   document.addEventListener("keydown", function (ev) {
     if (ev.key === "Escape") closeAll();
