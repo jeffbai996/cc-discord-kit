@@ -154,5 +154,19 @@ def test_web_link_unlink_and_gallery(client):
     # unlink
     c.post(f"/memory/{m['id']}", data={"action": "unlink-image", "file_id": f["id"]})
     html2 = c.get(f"/memory/{m['id']}").get_data(as_text=True)
-    assert '<section class="linked-images">' not in html2  # section gone
+    assert "<img" not in html2                              # thumbnail gone
     assert next(x for x in store.load_memories() if x["id"] == m["id"]).get("images") == []
+
+
+def test_web_link_picker_available_and_links(client):
+    c, store, fs = client
+    m = store.save_memory("m", name="m", type="reference")
+    f = fs.add_file("pic.png", blob_bytes=PNG, actor="t")
+    import re
+    html = c.get(f"/memory/{m['id']}").get_data(as_text=True)
+    assert re.search(r'<form[^>]*class="img-link-form"', html)
+    assert f'value="{f["id"]}"' in html
+    c.post(f"/memory/{m['id']}", data={"action": "link-image", "file_id": f["id"]})
+    html2 = c.get(f"/memory/{m['id']}").get_data(as_text=True)
+    assert not re.search(r'<form[^>]*class="img-link-form"', html2)
+    assert "<img" in html2

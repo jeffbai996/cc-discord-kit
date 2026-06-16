@@ -31,9 +31,10 @@
 
   <div class="body-render markdown-body">{{ m.text | render_md }}</div>
 
-  {% if linked_images %}
+  {% if linked_images or available_images %}
   <section class="linked-images">
     <h3 class="section-label">Images</h3>
+    {% if linked_images %}
     <div class="img-grid">
       {% for f in linked_images %}
       <figure class="img-card">
@@ -55,6 +56,20 @@
       </figure>
       {% endfor %}
     </div>
+    {% endif %}
+    {% if available_images %}
+    <form method="post" action="{{ url_for('memory_detail', memory_id=m.id) }}" class="img-link-form">
+      <input type="hidden" name="action" value="link-image">
+      <select name="file_id" required>
+        <option value="" disabled selected>link an image…</option>
+        {% for f in available_images %}
+        <option value="{{ f.id }}">#{{ f.id }} {{ f.name }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit" class="btn btn-ghost">link</button>
+      <a class="muted" href="{{ url_for('files_index') }}" style="font-size:0.78rem; margin-left:0.5rem;">+ upload a new image on the Files page</a>
+    </form>
+    {% endif %}
   </section>
   {% endif %}
 
