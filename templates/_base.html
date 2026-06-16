@@ -312,6 +312,22 @@ mark { background: rgba(241, 196, 15, 0.25); color: inherit;
 .markdown-body strong { color: var(--fg); }
 
 /* backlinks */
+/* linked-image gallery on the memory detail page */
+.linked-images { margin-top: 1.3rem; }
+.linked-images .section-label { font-size: 0.78rem; color: var(--muted);
+            font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;
+            margin: 0 0 0.6rem; }
+.img-grid { display: flex; flex-wrap: wrap; gap: 0.7rem; }
+.img-card { margin: 0; background: var(--bg-2); border: 1px solid var(--border);
+            border-radius: 8px; padding: 0.4rem; max-width: 220px; }
+.img-card img { display: block; max-width: 200px; max-height: 200px;
+                border-radius: 5px; object-fit: cover; }
+.img-card figcaption { display: flex; align-items: center; justify-content: space-between;
+            gap: 0.4rem; font-size: 0.72rem; margin-top: 0.35rem; }
+.img-unlink { background: transparent; border: none; color: var(--muted);
+              cursor: pointer; font-size: 0.85rem; padding: 0 0.2rem; }
+.img-unlink:hover { color: #ff7b72; }
+
 .backlinks { margin-top: 1.5rem; padding: 1rem 1.1rem; background: var(--bg-2);
              border: 1px solid var(--border); border-radius: var(--radius); }
 .backlinks h3 { margin: 0 0 0.5rem; font-size: 0.78rem; color: var(--muted);
