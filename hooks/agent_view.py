@@ -516,7 +516,7 @@ def _ensure_updater(session: str) -> None:
 def run_updater(session: str) -> None:
     """Detached poller: refresh stats and publish the panel every tick
     until every agent is terminal (or the hard timeout trips)."""
-    tick = float(os.environ.get("CCDK_AGENT_VIEW_TICK", "2"))
+    tick = float(os.environ.get("CCDK_AGENT_VIEW_TICK", "1.5"))
     deadline = time.time() + _HARD_TIMEOUT
     from narrate import _state_lock
     with _state_lock():
