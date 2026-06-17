@@ -410,18 +410,10 @@ def memory_detail(memory_id: int):
     backlinks = rendering.find_backlinks(
         memory_id, "memory", store.load_memories(), store.load_journal()
     )
-    linked = store.resolve_linked_images("memory", memory_id)
-    linked_ids = {f["id"] for f in linked}
-    import files_store
-    available_images = [
-        f for f in files_store.load_files()
-        if (f.get("mime") or "").startswith("image/") and f["id"] not in linked_ids
-    ]
     return render_template("memory_detail.html", m=m,
                            valid_types=sorted(store.VALID_TYPES),
                            backlinks=backlinks,
-                           linked_images=linked,
-                           available_images=available_images)
+                           linked_images=store.resolve_linked_images("memory", memory_id))
 
 
 @app.route("/memory/new", methods=["GET", "POST"])
