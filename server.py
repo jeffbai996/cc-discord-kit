@@ -386,16 +386,6 @@ def memory_detail(memory_id: int):
         if action == "delete":
             history.remove_memory_with_history(memory_id)
             return redirect(url_for("index"))
-        if action == "link-image":
-            fid = request.form.get("file_id", type=int)
-            if fid is not None:
-                store.link_image("memory", memory_id, fid)
-            return redirect(url_for("memory_detail", memory_id=memory_id))
-        if action == "unlink-image":
-            fid = request.form.get("file_id", type=int)
-            if fid is not None:
-                store.unlink_image("memory", memory_id, fid)
-            return redirect(url_for("memory_detail", memory_id=memory_id))
         history.edit_memory_with_history(
             memory_id,
             text=request.form.get("text"),
@@ -412,8 +402,7 @@ def memory_detail(memory_id: int):
     )
     return render_template("memory_detail.html", m=m,
                            valid_types=sorted(store.VALID_TYPES),
-                           backlinks=backlinks,
-                           linked_images=store.resolve_linked_images("memory", memory_id))
+                           backlinks=backlinks)
 
 
 @app.route("/memory/new", methods=["GET", "POST"])

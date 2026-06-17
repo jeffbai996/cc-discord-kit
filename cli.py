@@ -161,22 +161,6 @@ def _print_memory_full(m: dict) -> None:
     print(f"Saved: {m.get('ts', '')}")
     print()
     print(m.get("text", ""))
-    _print_linked_images("memory", m)
-
-
-def _print_linked_images(kind: str, entry: dict) -> None:
-    """Show a memory/journal entry's linked images (id, name, raw URL). Silent
-    if none; resolves through the store so dangling ids are dropped."""
-    if not entry.get("images"):
-        return
-    imgs = store.resolve_linked_images(kind, entry["id"])
-    if not imgs:
-        return
-    print()
-    print("Images:")
-    for f in imgs:
-        print(f"  📎 #{f['id']} {f.get('name', '')} ({f.get('mime', '?')}) "
-              f"— /api/files/{f['id']}/raw?inline=1")
 
 
 def _print_journal_full(e: dict) -> None:
@@ -187,7 +171,6 @@ def _print_journal_full(e: dict) -> None:
     print(f"Saved:  {e.get('ts', '')}")
     print()
     print(e.get("text", ""))
-    _print_linked_images("journal", e)
 
 
 # ─────────────────────────── command handlers ───────────────────────────
@@ -476,19 +459,6 @@ def cmd_memory(args: argparse.Namespace) -> int:
         )
         _print_memory_list(results)
         return 0
-    if sub == "link-image":
-        if store.link_image("memory", args.id, args.file_id):
-            print(f"Linked file #{args.file_id} to memory #{args.id}")
-            return 0
-        print(f"Link failed — check memory #{args.id} and file #{args.file_id} both exist",
-              file=sys.stderr)
-        return 1
-    if sub == "unlink-image":
-        if store.unlink_image("memory", args.id, args.file_id):
-            print(f"Unlinked file #{args.file_id} from memory #{args.id}")
-            return 0
-        print(f"File #{args.file_id} was not linked to memory #{args.id}", file=sys.stderr)
-        return 1
     return 2
 
 
@@ -1054,14 +1024,6 @@ def build_parser() -> argparse.ArgumentParser:
     m_search.add_argument("term")
     m_search.add_argument("--about", action="append", default=[])
     m_search.add_argument("--all", action="store_true")
-
-    m_linkimg = msub.add_parser("link-image",
-                                help="link a stored file (image) to a memory — surfaces on show")
-    m_linkimg.add_argument("id", type=int, help="memory id")
-    m_linkimg.add_argument("file_id", type=int, help="files-store id")
-    m_unlinkimg = msub.add_parser("unlink-image", help="unlink a file from a memory")
-    m_unlinkimg.add_argument("id", type=int, help="memory id")
-    m_unlinkimg.add_argument("file_id", type=int, help="files-store id")
 
     # journal
     jou = top.add_parser("journal", help="manage pinned moments")

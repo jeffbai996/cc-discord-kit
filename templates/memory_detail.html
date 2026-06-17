@@ -31,33 +31,6 @@
 
   <div class="body-render markdown-body">{{ m.text | render_md }}</div>
 
-  {% if linked_images %}
-  <section class="linked-images">
-    <h3 class="section-label">Images</h3>
-    <div class="img-grid">
-      {% for f in linked_images %}
-      <figure class="img-card">
-        {% if f.mime and f.mime.startswith('image/') and f.mime != 'image/svg+xml' %}
-          <a href="{{ url_for('api_file_raw', file_id=f.id) }}?inline=1" target="_blank">
-            <img src="{{ url_for('api_file_raw', file_id=f.id) }}?inline=1" alt="{{ f.name }}" loading="lazy">
-          </a>
-        {% else %}
-          <a class="pill" href="{{ url_for('api_file_raw', file_id=f.id) }}" target="_blank">📎 {{ f.name }}</a>
-        {% endif %}
-        <figcaption>
-          <span class="muted">#{{ f.id }} {{ f.name }}</span>
-          <form method="post" action="{{ url_for('memory_detail', memory_id=m.id) }}" style="display:inline;">
-            <input type="hidden" name="action" value="unlink-image">
-            <input type="hidden" name="file_id" value="{{ f.id }}">
-            <button type="submit" class="img-unlink" title="unlink">✕</button>
-          </form>
-        </figcaption>
-      </figure>
-      {% endfor %}
-    </div>
-  </section>
-  {% endif %}
-
   {% if backlinks.memories or backlinks.journal %}
   <section class="backlinks">
     <h3>linked from</h3>

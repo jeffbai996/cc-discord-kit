@@ -673,66 +673,6 @@ def add_journal(text: str, *, source: str = "", actor: str = "",
     })
 
 
-# ---- Image links -----------------------------------------------------------
-# files_store already stores + HTTP-serves images (sha256 blobs, /api/files/
-# <id>/raw). This layer lets a memory or journal entry declare images:[file_id]
-# so the picture surfaces when the entry is shown. References only; storage
-# stays in files_store.
-
-def _store_for_kind(kind: str):
-    return {"memory": _memories, "journal": _journal}.get(kind)
-
-
-def link_image(kind: str, entry_id: int, file_id: int) -> bool:
-    """Link a stored file (image) to a memory/journal entry. Validates both
-    exist; de-dups. False on unknown kind / missing entry / missing file."""
-    st = _store_for_kind(kind)
-    if st is None:
-        return False
-    import files_store
-    if files_store.get_file(file_id) is None:
-        return False
-    entry = next((e for e in st.load() if e.get("id") == entry_id), None)
-    if entry is None:
-        return False
-    images = list(entry.get("images") or [])
-    if file_id not in images:
-        images.append(file_id)
-    return st.update(entry_id, {"images": images})
-
-
-def unlink_image(kind: str, entry_id: int, file_id: int) -> bool:
-    st = _store_for_kind(kind)
-    if st is None:
-        return False
-    entry = next((e for e in st.load() if e.get("id") == entry_id), None)
-    if entry is None:
-        return False
-    images = list(entry.get("images") or [])
-    if file_id not in images:
-        return False
-    images.remove(file_id)
-    return st.update(entry_id, {"images": images})
-
-
-def resolve_linked_images(kind: str, entry_id: int) -> list[dict]:
-    """Resolve an entry's image ids to live files_store records, in order.
-    Dangling ids (file deleted since) are dropped."""
-    st = _store_for_kind(kind)
-    if st is None:
-        return []
-    entry = next((e for e in st.load() if e.get("id") == entry_id), None)
-    if entry is None:
-        return []
-    import files_store
-    out: list[dict] = []
-    for fid in entry.get("images") or []:
-        rec = files_store.get_file(fid)
-        if rec is not None:
-            out.append(rec)
-    return out
-
-
 # ---- Todos -----------------------------------------------------------------
 # A to-do is a JOURNAL entry with kind=="todo" — todos and moments share
 # journal.json, and the /journal page toggles between the two views. The `kind`
