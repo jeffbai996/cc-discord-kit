@@ -2,6 +2,11 @@
 {% block title %}memories ({{ entries|length }}/{{ total }}){% endblock %}
 {% block content %}
 
+<div class="subtabs">
+  <a href="{{ url_for('index') }}" class="subtab active">memories</a>
+  <a href="{{ url_for('deep_index') }}" class="subtab">deep</a>
+</div>
+
 <form class="filters" id="filters-form" method="get"
       data-api-search="{{ url_for('api_search') }}"
       data-detail-base="{{ url_for('memory_detail', memory_id=0)[:-1] }}"
