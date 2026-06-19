@@ -1,0 +1,46 @@
+{% extends "_base.html" %}
+{% block title %}promote {{ fname }} → store{% endblock %}
+{% block content %}
+
+<div class="subtabs">
+  <a href="{{ url_for('index') }}" class="subtab">memories</a>
+  <a href="{{ url_for('deep_index') }}" class="subtab active">deep</a>
+</div>
+
+<p style="margin: 0 0 0.6rem;"><a href="{{ url_for('deep_file', fname=fname) }}">← {{ fname }}</a></p>
+<h2>promote → store</h2>
+<p class="muted" style="font-size: 0.85rem; max-width: 70ch;">
+  Creates an <strong>always-on</strong> store memory from this deep file's gist — it'll be
+  auto-recalled every turn. The deep file <strong>stays</strong> as the long-form reference.
+</p>
+
+{% if error %}
+<div class="warn" style="background: rgba(207,122,0,0.15); border: 1px solid rgba(207,122,0,0.4); color: #ffa657; padding: 0.5rem 0.8rem; border-radius: 6px; margin-bottom: 0.8rem; font-size: 0.88rem;">⚠ {{ error }}</div>
+{% endif %}
+
+<form method="post" class="deep-form">
+  <div class="deep-form-row">
+    <label>name
+      <input name="name" value="{{ form.get('name', meta.title) }}" autocomplete="off">
+    </label>
+    <label>type
+      <select name="type">
+        {% for t in ['project', 'reference', 'feedback', 'user'] %}
+        <option value="{{ t }}" {% if (form.get('type') or deftype) == t %}selected{% endif %}>{{ t }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  </div>
+  <label>summary <span class="muted">(the always-on memory body — keep it concise)</span>
+    <textarea name="text" rows="8" spellcheck="false">{{ form.get('text', meta.desc) }}</textarea>
+  </label>
+  <label>tags <span class="muted">(comma-separated)</span>
+    <input name="tags" value="{{ form.get('tags', '') }}" autocomplete="off">
+  </label>
+  <div class="deep-form-actions">
+    <button class="btn-primary" type="submit">promote</button>
+    <a class="btn btn-ghost" href="{{ url_for('deep_file', fname=fname) }}">cancel</a>
+  </div>
+</form>
+
+{% endblock %}

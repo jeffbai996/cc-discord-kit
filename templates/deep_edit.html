@@ -1,0 +1,35 @@
+{% extends "_base.html" %}
+{% block title %}edit {{ fname }}{% endblock %}
+{% block content %}
+
+<div class="subtabs">
+  <a href="{{ url_for('index') }}" class="subtab">memories</a>
+  <a href="{{ url_for('deep_index') }}" class="subtab active">deep</a>
+</div>
+
+<p style="margin: 0 0 0.6rem;"><a href="{{ url_for('deep_file', fname=fname) }}">← {{ fname }}</a></p>
+<h2>edit <span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.9rem;">{{ fname }}</span></h2>
+
+<form method="post" class="deep-form">
+  <div class="deep-form-row">
+    <label>title
+      <input name="title" value="{{ meta.title }}" autocomplete="off">
+    </label>
+    <label>category
+      <input name="category" list="deep-cats" value="{{ meta.category }}" autocomplete="off">
+      <datalist id="deep-cats">{% for c in categories %}<option value="{{ c }}">{% endfor %}</datalist>
+    </label>
+  </div>
+  <label>description <span class="muted">(index line — leave title+category set to keep it indexed)</span>
+    <input name="desc" value="{{ meta.desc }}" autocomplete="off">
+  </label>
+  <label>content <span class="muted">(markdown)</span>
+    <textarea name="body" rows="28" spellcheck="false">{{ body }}</textarea>
+  </label>
+  <div class="deep-form-actions">
+    <button class="btn-primary" type="submit">save</button>
+    <a class="btn btn-ghost" href="{{ url_for('deep_file', fname=fname) }}">cancel</a>
+  </div>
+</form>
+
+{% endblock %}

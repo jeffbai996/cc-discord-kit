@@ -94,6 +94,8 @@
       <a class="btn btn-ghost" href="{{ url_for('index') }}">back to list</a>
       <a class="btn btn-ghost" href="{{ url_for('memory_history', memory_id=m.id) }}">history</a>
       <a class="btn btn-ghost" href="{{ url_for('memory_merge', winner_id=m.id) }}">merge from…</a>
+      <a class="btn btn-ghost" href="{{ url_for('memory_archive', memory_id=m.id) }}"
+         title="move to the deep tier (off always-on recall)">→ deep</a>
       <span class="spacer"></span>
     </div>
   </form>

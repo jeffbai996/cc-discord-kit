@@ -29,7 +29,9 @@ directly.
 from __future__ import annotations
 
 import os
+import re
 import sys
+from datetime import datetime
 from typing import Any
 
 from flask import Flask, abort, jsonify, redirect, render_template, request, url_for
@@ -563,6 +565,434 @@ def memory_history(memory_id: int):
     entries = list(reversed(history.load_history("memory", memory_id)))
     return render_template("history.html", target=m, target_kind="memory",
                            entries=entries)
+
+
+# ── deep memory — long-form markdown reference docs, indexed by MEMORY.md ──
+
+_DEEP_LINK_RE = re.compile(r"^\s*-\s*\[([^\]]+)\]\(\.?/?([^)]+\.md)\)\s*(?:—|-)?\s*(.*)$")
+
+
+def _deep_mem_dir() -> str:
+    """Deep-memory dir — long-form markdown reference docs beside the JSON
+    store. Defaults to <CCDK_DATA_DIR>/deep; override with CCDK_DEEP_DIR."""
+    explicit = os.environ.get("CCDK_DEEP_DIR", "")
+    if explicit:
+        return os.path.abspath(os.path.expanduser(explicit))
+    return os.path.join(store.DATA_DIR, "deep")
+
+
+def _parse_deep_index() -> list[dict]:
+    """Parse MEMORY.md → [{title, entries:[{title, file, desc, exists}]}].
+
+    Groups `- [Title](./file.md) — desc` bullets under their preceding `## H2`.
+    """
+    d = _deep_mem_dir()
+    idx = os.path.join(d, "MEMORY.md")
+    cats: list[dict] = []
+    cur: dict | None = None
+    if not os.path.exists(idx):
+        return cats
+    with open(idx, encoding="utf-8") as f:
+        for line in f:
+            h = re.match(r"^##\s+(.*)", line)
+            if h:
+                cur = {"title": h.group(1).strip(), "entries": []}
+                cats.append(cur)
+                continue
+            m = _DEEP_LINK_RE.match(line)
+            if m and cur is not None:
+                fname = m.group(2).strip()
+                kind = next((k for k in ("project", "reference", "feedback", "user")
+                             if fname.startswith(k + "_")), "doc")
+                cur["entries"].append({
+                    "title": m.group(1).strip(),
+                    "file": fname,
+                    "desc": m.group(3).strip(),
+                    "kind": kind,
+                    "exists": os.path.exists(os.path.join(d, fname)),
+                })
+    return [c for c in cats if c["entries"]]
+
+
+_WIKILINK_RE = re.compile(r"\[\[([^\]\n]+)\]\]")
+
+
+def _deep_name_map() -> dict:
+    """Map each deep file's frontmatter `name:` slug (and its filename stem) →
+    filename, so [[slug]] wikilinks can resolve to the right file."""
+    d = _deep_mem_dir()
+    out: dict[str, str] = {}
+    try:
+        files = [f for f in os.listdir(d) if f.endswith(".md") and f != "MEMORY.md"]
+    except OSError:
+        return out
+    for f in files:
+        out.setdefault(f[:-3], f)  # filename-stem alias
+        try:
+            with open(os.path.join(d, f), encoding="utf-8") as fh:
+                head = fh.read(800)  # frontmatter sits at the top
+        except OSError:
+            continue
+        m = re.search(r"^name:\s*(.+)$", head, re.MULTILINE)
+        if m:
+            out[m.group(1).strip().strip('"').strip("'")] = f
+    return out
+
+
+def _deep_linkify_wikilinks(text: str, name_map: dict) -> str:
+    """Turn [[slug]] into a markdown link to the matching deep file. Unresolved
+    slugs are left as literal [[slug]] text."""
+    def repl(m):
+        slug = m.group(1).strip()
+        fn = name_map.get(slug)
+        if fn:
+            # Raw anchor (preserves the [[slug]] look); markdown stashes it
+            # verbatim and bleach keeps a/href/class.
+            return f'<a class="wikilink" href="{url_for("deep_file", fname=fn)}">[[{slug}]]</a>'
+        return f"[[{slug}]]"
+    return _WIKILINK_RE.sub(repl, text)
+
+
+@app.route("/deep")
+def deep_index():
+    cats = _parse_deep_index()
+    total = sum(len(c["entries"]) for c in cats)
+    return render_template("deep.html", categories=cats, total=total,
+                           health=_deep_health(), last_change=_deep_last_change())
+
+
+@app.route("/deep/<fname>")
+def deep_file(fname):
+    fpath = _deep_safe_path(fname)
+    if not fpath or not os.path.exists(fpath):
+        abort(404)
+    import bleach
+    import markdown as _md
+    with open(fpath, encoding="utf-8") as f:
+        raw = f.read()
+    # Resolve [[wikilinks]] → deep-file links, then render + sanitize. markdown
+    # passes raw HTML through and deep files (esp. ones archived from the store)
+    # can carry untrusted content, so bleach the output with the memory
+    # renderer's vetted allowlist.
+    linked = _deep_linkify_wikilinks(raw, _deep_name_map())
+    html = bleach.clean(
+        _md.markdown(linked, extensions=["fenced_code", "tables", "sane_lists"]),
+        tags=rendering._ALLOWED_TAGS,
+        attributes=rendering._ALLOWED_ATTRS,
+        protocols=["http", "https", "mailto"],
+        strip=True,
+    )
+    mtime = datetime.fromtimestamp(os.path.getmtime(fpath)).strftime("%Y-%m-%d %H:%M")
+    return render_template("deep_file.html", fname=fname, html=html, raw=raw, mtime=mtime)
+
+
+# ── deep CRUD — each write auto-commits (+ best-effort push) when the deep
+#    dir lives inside a git repo; otherwise the git step is a no-op. ──
+
+_DEEP_FNAME_RE = re.compile(r"^[a-zA-Z0-9._-]+\.md$")
+
+
+def _deep_safe_path(fname: str) -> str | None:
+    """Resolve a flat .md filename to its absolute path inside the deep dir.
+    Returns None for anything unsafe (traversal, slashes, non-.md)."""
+    if not fname or not _DEEP_FNAME_RE.match(fname) or ".." in fname:
+        return None
+    d = os.path.normpath(_deep_mem_dir())
+    p = os.path.normpath(os.path.join(d, fname))
+    return p if os.path.dirname(p) == d else None
+
+
+def _deep_index_path() -> str:
+    return os.path.join(_deep_mem_dir(), "MEMORY.md")
+
+
+def _deep_repo_root(deep_dir: str) -> str | None:
+    """Top-level of the git repo containing the deep dir, or None if the deep
+    dir isn't inside a git repo (or git is unavailable)."""
+    import subprocess
+    try:
+        r = subprocess.run(
+            ["git", "-C", deep_dir, "rev-parse", "--show-toplevel"],
+            capture_output=True, timeout=15)
+    except Exception:
+        return None
+    if r.returncode != 0 or not r.stdout.strip():
+        return None
+    return r.stdout.decode().strip()
+
+
+def _deep_git_commit(message: str) -> dict:
+    """Stage the deep dir, commit, best-effort push. No-op (not fatal) when the
+    deep dir isn't a git repo. Push failure is non-fatal — the change is
+    committed locally and propagates on the next sync."""
+    import subprocess
+    deep_dir = _deep_mem_dir()
+    repo = _deep_repo_root(deep_dir)
+    if not repo:
+        return {"ok": True, "committed": False, "pushed": False, "note": "not a git repo"}
+    rel = os.path.relpath(deep_dir, repo)
+
+    def _git(*args, timeout=30):
+        return subprocess.run(["git", "-C", repo, *args],
+                              capture_output=True, timeout=timeout)
+    try:
+        _git("add", rel)
+        if _git("diff", "--cached", "--quiet", "--", rel).returncode == 0:
+            return {"ok": True, "committed": False, "pushed": False, "note": "no changes"}
+        c = _git("commit", "-m", message, "--", rel)
+        if c.returncode != 0:
+            return {"ok": False, "committed": False, "pushed": False,
+                    "note": c.stderr.decode()[:200]}
+    except Exception as e:
+        return {"ok": False, "committed": False, "pushed": False, "note": str(e)[:200]}
+    p = _git("push", timeout=45)
+    pushed = p.returncode == 0
+    return {"ok": True, "committed": True, "pushed": pushed,
+            "note": "committed + pushed" if pushed
+                    else "committed locally; push pending"}
+
+
+def _deep_remove_index_line(fname: str) -> bool:
+    """Remove the MEMORY.md bullet that links to fname. True if a line was removed."""
+    path = _deep_index_path()
+    if not os.path.exists(path):
+        return False
+    lines = open(path, encoding="utf-8").read().splitlines(keepends=True)
+    kept = [ln for ln in lines if f"({fname})" not in ln and f"(./{fname})" not in ln]
+    if len(kept) == len(lines):
+        return False
+    open(path, "w", encoding="utf-8").write("".join(kept))
+    return True
+
+
+def _deep_add_index_line(category: str, title: str, fname: str, desc: str) -> None:
+    """Insert `- [title](./fname) — desc` under `## category` (appending the
+    bullet after the section's existing bullets; creating the section at EOF
+    if it's new)."""
+    path = _deep_index_path()
+    category = category.strip()
+    bullet = f"- [{title}](./{fname})" + (f" — {desc}" if desc else "") + "\n"
+    lines = (open(path, encoding="utf-8").read().splitlines(keepends=True)
+             if os.path.exists(path) else [])
+    hdr_idx = None
+    for i, ln in enumerate(lines):
+        m = re.match(r"^##\s+(.*)", ln)
+        if m and m.group(1).strip() == category:
+            hdr_idx = i
+            break
+    if hdr_idx is None:
+        if lines and not lines[-1].endswith("\n"):
+            lines[-1] += "\n"
+        lines += [f"\n## {category}\n", bullet]
+    else:
+        j, last_bullet = hdr_idx + 1, hdr_idx
+        while j < len(lines) and not re.match(r"^##\s+", lines[j]):
+            if lines[j].lstrip().startswith("- "):
+                last_bullet = j
+            j += 1
+        lines.insert(last_bullet + 1, bullet)
+    open(path, "w", encoding="utf-8").write("".join(lines))
+
+
+@app.route("/deep/new", methods=["GET", "POST"])
+def deep_new():
+    cats = [c["title"] for c in _parse_deep_index()]
+    if request.method == "POST":
+        title = (request.form.get("title") or "").strip()
+        category = (request.form.get("category") or "").strip()
+        fname = (request.form.get("fname") or "").strip()
+        desc = (request.form.get("desc") or "").strip()
+        body = request.form.get("body") or ""
+        if not _DEEP_FNAME_RE.match(fname) or _deep_safe_path(fname) is None:
+            err = "filename must be a simple name ending in .md (e.g. project_foo.md)"
+        elif os.path.exists(_deep_safe_path(fname)):
+            err = f"{fname} already exists"
+        elif not title:
+            err = "title required"
+        elif not category:
+            err = "category required"
+        else:
+            err = None
+        if err:
+            return render_template("deep_new.html", categories=cats, error=err,
+                                   form=request.form)
+        os.makedirs(_deep_mem_dir(), exist_ok=True)
+        with open(_deep_safe_path(fname), "w", encoding="utf-8") as f:
+            f.write(body)
+        _deep_add_index_line(category, title, fname, desc)
+        _deep_git_commit(f"deep: add {fname}")
+        return redirect(url_for("deep_file", fname=fname))
+    return render_template("deep_new.html", categories=cats, error=None, form={})
+
+
+@app.route("/deep/<fname>/edit", methods=["GET", "POST"])
+def deep_edit(fname):
+    fpath = _deep_safe_path(fname)
+    if not fpath or not os.path.exists(fpath):
+        abort(404)
+    if request.method == "POST":
+        with open(fpath, "w", encoding="utf-8") as f:
+            f.write(request.form.get("body", ""))
+        # Optional index-metadata update (title / desc / recategorize).
+        title = (request.form.get("title") or "").strip()
+        category = (request.form.get("category") or "").strip()
+        desc = (request.form.get("desc") or "").strip()
+        if title and category:
+            _deep_remove_index_line(fname)
+            _deep_add_index_line(category, title, fname, desc)
+        _deep_git_commit(f"deep: edit {fname}")
+        return redirect(url_for("deep_file", fname=fname))
+    meta = {"title": fname, "desc": "", "category": ""}
+    cats = _parse_deep_index()
+    for c in cats:
+        for e in c["entries"]:
+            if e["file"] == fname:
+                meta = {"title": e["title"], "desc": e["desc"], "category": c["title"]}
+    return render_template("deep_edit.html", fname=fname,
+                           body=open(fpath, encoding="utf-8").read(),
+                           meta=meta, categories=[c["title"] for c in cats])
+
+
+@app.route("/deep/<fname>/delete", methods=["POST"])
+def deep_delete(fname):
+    fpath = _deep_safe_path(fname)
+    if not fpath or not os.path.exists(fpath):
+        abort(404)
+    os.remove(fpath)
+    _deep_remove_index_line(fname)
+    _deep_git_commit(f"deep: delete {fname}")
+    return redirect(url_for("deep_index"))
+
+
+def _deep_health() -> dict:
+    """Cross-check the index vs the dir: index entries with no file, and files
+    with no index line."""
+    d = _deep_mem_dir()
+    indexed = {e["file"] for c in _parse_deep_index() for e in c["entries"]}
+    try:
+        on_disk = {f for f in os.listdir(d) if f.endswith(".md") and f != "MEMORY.md"}
+    except OSError:
+        on_disk = set()
+    return {
+        "orphan_index": sorted(indexed - on_disk),  # in index, file missing
+        "orphan_files": sorted(on_disk - indexed),   # file present, not indexed
+    }
+
+
+def _deep_last_change() -> dict | None:
+    """Most recent commit touching the deep dir — powers the undo bar.
+    `undoable` is True only when that commit IS HEAD (a clean revert).
+    Returns None when the deep dir isn't a git repo."""
+    import subprocess
+    deep_dir = _deep_mem_dir()
+    repo = _deep_repo_root(deep_dir)
+    if not repo:
+        return None
+    rel = os.path.relpath(deep_dir, repo)
+    try:
+        r = subprocess.run(
+            ["git", "-C", repo, "log", "-1", "--format=%h|%s|%cr", "--", rel],
+            capture_output=True, timeout=15)
+        if r.returncode != 0 or not r.stdout.strip():
+            return None
+        h, subject, when = r.stdout.decode().strip().split("|", 2)
+        head = subprocess.run(["git", "-C", repo, "rev-parse", "--short", "HEAD"],
+                              capture_output=True, timeout=15)
+        is_head = head.returncode == 0 and head.stdout.decode().strip() == h
+        owned = subject.startswith("deep:")
+        return {"hash": h, "subject": subject, "when": when, "undoable": is_head and owned}
+    except Exception:
+        return None
+
+
+@app.route("/deep/undo", methods=["POST"])
+def deep_undo():
+    """Revert the last deep change (git revert HEAD). Only when HEAD is the
+    deep commit — refuses if newer commits sit on top (avoids conflicts)."""
+    import subprocess
+    lc = _deep_last_change()
+    if not lc or not lc["undoable"]:
+        abort(409)
+    repo = _deep_repo_root(_deep_mem_dir())
+    if not repo:
+        abort(409)
+    rv = subprocess.run(["git", "-C", repo, "revert", "--no-edit", "HEAD"],
+                        capture_output=True, timeout=25)
+    if rv.returncode != 0:
+        # revert conflicted — abort it so the tree isn't left mid-revert
+        subprocess.run(["git", "-C", repo, "revert", "--abort"], capture_output=True, timeout=15)
+        abort(409)
+    subprocess.run(["git", "-C", repo, "push"], capture_output=True, timeout=45)
+    return redirect(url_for("deep_index"))
+
+
+# ── tier-move: deep ↔ store ──
+
+@app.route("/deep/<fname>/promote", methods=["GET", "POST"])
+def deep_promote(fname):
+    """Promote a deep file's gist → a store memory (always-on). The deep file
+    stays (long-form reference); the store copy is the summary."""
+    fpath = _deep_safe_path(fname)
+    if not fpath or not os.path.exists(fpath):
+        abort(404)
+    meta = {"title": fname, "desc": "", "kind": "reference"}
+    for c in _parse_deep_index():
+        for e in c["entries"]:
+            if e["file"] == fname:
+                meta = {"title": e["title"], "desc": e["desc"], "kind": e["kind"]}
+    if request.method == "POST":
+        name = (request.form.get("name") or "").strip()
+        mtype = (request.form.get("type") or "reference").strip()
+        text = (request.form.get("text") or "").strip()
+        tags = _parse_csv(request.form.get("tags", ""))
+        if not text:
+            return render_template("deep_promote.html", fname=fname, meta=meta,
+                                   deftype=mtype, error="summary text is required",
+                                   form=request.form)
+        m = store.save_memory(text, type=mtype, name=name, tags=tags)
+        return redirect(url_for("memory_detail", memory_id=m["id"]))
+    deftype = meta["kind"] if meta["kind"] in ("project", "reference", "feedback", "user") else "reference"
+    return render_template("deep_promote.html", fname=fname, meta=meta,
+                           deftype=deftype, error=None, form={})
+
+
+@app.route("/memory/<int:memory_id>/archive", methods=["GET", "POST"])
+def memory_archive(memory_id):
+    """Archive a store memory → a deep file (off the always-on hot path).
+    Writes the deep file FIRST, then removes the store memory (so a failed
+    write never loses data)."""
+    m = next((x for x in store.load_memories() if x.get("id") == memory_id), None)
+    if not m:
+        abort(404)
+    cats = [c["title"] for c in _parse_deep_index()]
+    if request.method == "POST":
+        title = (request.form.get("title") or "").strip()
+        category = (request.form.get("category") or "").strip()
+        fname = (request.form.get("fname") or "").strip()
+        desc = (request.form.get("desc") or "").strip()
+        body = request.form.get("body") or ""
+        if not _DEEP_FNAME_RE.match(fname) or _deep_safe_path(fname) is None:
+            err = "filename must be a simple name ending in .md"
+        elif os.path.exists(_deep_safe_path(fname)):
+            err = f"{fname} already exists"
+        elif not title or not category:
+            err = "title + category required"
+        else:
+            err = None
+        if err:
+            return render_template("memory_archive.html", m=m, categories=cats,
+                                   suggested=fname, error=err, form=request.form)
+        os.makedirs(_deep_mem_dir(), exist_ok=True)
+        with open(_deep_safe_path(fname), "w", encoding="utf-8") as f:
+            f.write(body)
+        _deep_add_index_line(category, title, fname, desc)
+        _deep_git_commit(f"deep: archive store #{memory_id} -> {fname}")
+        store.remove_memory(memory_id)
+        return redirect(url_for("deep_file", fname=fname))
+    kind = m.get("type", "reference")
+    slug = re.sub(r"[^a-z0-9]+", "_", (m.get("name") or f"mem{memory_id}").lower()).strip("_")[:40]
+    return render_template("memory_archive.html", m=m, categories=cats,
+                           suggested=f"{kind}_{slug or memory_id}.md", error=None, form={})
 
 
 @app.route("/journal/<int:entry_id>/history")

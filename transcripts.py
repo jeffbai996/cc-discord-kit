@@ -28,10 +28,18 @@ Usage:
     python -m transcripts --watch           # poll forever every POLL_INTERVAL
     python -m transcripts --reindex         # rebuild markdown shadows from jsonl
 
+Threads: messages posted in threads are folded UNDER their parent channel's
+transcript (tagged with the thread name) so a reply in a thread isn't lost.
+Active threads are swept every poll cycle; --backfill-threads is a one-shot
+that also pulls archived threads from the beginning.
+
 Env:
     CCDK_TRANSCRIPTS_DIR             override storage dir
     CCDK_TRANSCRIPTS_POLL_INTERVAL   seconds between poll cycles in --watch mode
     CCDK_TRANSCRIPTS_RETENTION_DAYS  prune older than this (default 365)
+    CCDK_GUILD_IDS                   optional CSV of guild ids for thread
+                                     capture; if unset, the guild of each
+                                     configured channel is derived at runtime
 """
 
 from __future__ import annotations
@@ -52,7 +60,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from digest import (  # noqa: E402
     DIGEST_CHANNELS,
     HARD_MESSAGE_CAP,
+    _fetch_active_threads,
+    _fetch_archived_threads,
     _fetch_channel,
+    _get_guild_id,
     _load_token,
 )
 
@@ -201,8 +212,13 @@ def _rebuild_md(channel_name: str, day: str) -> None:
         time_part = (m.get("ts", "")[11:16] or "??:??")
         author = m.get("author", "?")
         bot_marker = " [bot]" if m.get("is_bot") else ""
+        # Thread messages live in the parent channel's file; label them so the
+        # reader (and any indexer) can tell a thread reply from a main-channel
+        # one.
+        thread_marker = (f" . thread: {m['thread_name']}"
+                         if m.get("thread_name") else "")
         content = m.get("content", "") or "(empty)"
-        parts.append(f"**{author}{bot_marker}** . {time_part}")
+        parts.append(f"**{author}{bot_marker}** . {time_part}{thread_marker}")
         # Indent body under a blockquote so paragraphs stay attributed to the
         # speaker after the indexer's chunker.
         for line in content.splitlines() or [""]:
@@ -237,12 +253,128 @@ def _prune_old(retention_days: int = RETENTION_DAYS) -> int:
     return removed
 
 
+# ─────────────────────────── message mapping ───────────────────────────
+
+
+def _map_messages(raw: list[dict], channel_name: str, channel_id: str,
+                  thread_id: str | None = None,
+                  thread_name: str | None = None) -> list[dict]:
+    """Map raw Discord message dicts to our archive records.
+
+    Thread messages are attributed to the PARENT `channel_name` (so they land
+    in that channel's transcript) but carry `thread_id`/`thread_name` so the
+    markdown shadow can label them.
+    """
+    out: list[dict] = []
+    for m in raw:
+        author = m.get("author", {}) or {}
+        rec = {
+            "channel": channel_name,
+            "channel_id": channel_id,
+            "id": m.get("id", ""),
+            "author": author.get("username", "?"),
+            "author_id": author.get("id", ""),
+            "is_bot": bool(author.get("bot", False)),
+            "content": m.get("content", "") or "",
+            "ts": m.get("timestamp", ""),
+        }
+        if thread_id:
+            rec["thread_id"] = thread_id
+            rec["thread_name"] = thread_name or ""
+        out.append(rec)
+    return out
+
+
+# ─────────────────────────── threads ───────────────────────────
+
+# Optional explicit guild ids from CCDK_GUILD_IDS (CSV). When set, these are
+# used directly; otherwise the guild id of each configured channel is derived
+# at runtime via _get_guild_id. Configured channels may span multiple guilds,
+# so we collect every distinct guild and sweep active threads for each.
+_GUILD_IDS_VAR = "CCDK_GUILD_IDS"
+
+# Process-lifetime cache of resolved guild ids — guilds don't change per run.
+_GUILD_IDS_CACHE: list[list[str]] = []
+
+
+def _configured_guild_ids() -> list[str]:
+    """Return guild ids from CCDK_GUILD_IDS env, or [] if unset/blank."""
+    raw = os.environ.get(_GUILD_IDS_VAR, "")
+    return [g.strip() for g in raw.split(",") if g.strip()]
+
+
+def _resolve_guild_ids(token: str) -> list[str]:
+    """Resolve the set of guild ids whose active threads should be swept.
+
+    Prefers CCDK_GUILD_IDS when set. Otherwise derives the guild of each
+    configured channel via _get_guild_id (deduped). Cached on first success
+    so repeated poll cycles don't re-hit Discord. A transient failure (empty
+    result) is not cached, so it retries next cycle.
+    """
+    if _GUILD_IDS_CACHE:
+        return _GUILD_IDS_CACHE[0]
+
+    explicit = _configured_guild_ids()
+    if explicit:
+        _GUILD_IDS_CACHE.append(explicit)
+        return explicit
+
+    seen: list[str] = []
+    for channel_id in DIGEST_CHANNELS.values():
+        gid = _get_guild_id(channel_id, token)
+        if gid and gid not in seen:
+            seen.append(gid)
+    if seen:
+        _GUILD_IDS_CACHE.append(seen)
+    return seen  # empty → not cached, retried next cycle
+
+
+def _ingest_thread(thread: dict, parent_name: str, parent_id: str,
+                   token: str, state: dict[str, str],
+                   from_start: bool = False) -> int:
+    """Fetch a thread's new messages and append them under the parent channel.
+
+    `from_start=True` (backfill) reads the thread from its beginning; otherwise
+    it resumes from the per-thread cursor in state, or the 7-day bootstrap.
+    Returns the number of messages added.
+    """
+    thread_id = str(thread.get("id", ""))
+    if not thread_id:
+        return 0
+    thread_name = thread.get("name", "") or ""
+    last_id = state.get(thread_id)
+    if from_start:
+        # backfill reads from the thread's start regardless of any saved cursor
+        after_ms = DISCORD_EPOCH_MS  # snowflake 0 → from the thread's start
+    elif last_id:
+        after_ms = (int(last_id) >> 22) + DISCORD_EPOCH_MS
+    else:
+        after_ms = _initial_cursor_ms()
+
+    try:
+        raw = _fetch_channel(thread_id, after_ms, token)
+    except RuntimeError as e:
+        log.warning("thread %s (%s) fetch failed: %s", thread_name, thread_id, e)
+        return 0
+
+    msgs = _map_messages(raw, parent_name, parent_id,
+                         thread_id=thread_id, thread_name=thread_name)
+    if not msgs:
+        return 0
+    touched = _append_messages(parent_name, msgs)
+    for day in touched:
+        _rebuild_md(parent_name, day)
+    state[thread_id] = max(m["id"] for m in msgs)
+    return len(msgs)
+
+
 # ─────────────────────────── poll loop ───────────────────────────
 
 
 def _poll_once(state: dict[str, str], token: str) -> dict[str, int]:
-    """One poll cycle across all channels. Mutates state in-place.
+    """One poll cycle: every channel, plus each channel's active threads.
 
+    Threads are folded UNDER their parent channel. Mutates state in-place.
     Returns {channel_name: messages_added} for visibility.
     """
     counts: dict[str, int] = {}
@@ -261,19 +393,7 @@ def _poll_once(state: dict[str, str], token: str) -> dict[str, int]:
             counts[channel_name] = 0
             continue
 
-        msgs = []
-        for m in raw:
-            author = m.get("author", {}) or {}
-            msgs.append({
-                "channel": channel_name,
-                "channel_id": channel_id,
-                "id": m.get("id", ""),
-                "author": author.get("username", "?"),
-                "author_id": author.get("id", ""),
-                "is_bot": bool(author.get("bot", False)),
-                "content": m.get("content", "") or "",
-                "ts": m.get("timestamp", ""),
-            })
+        msgs = _map_messages(raw, channel_name, channel_id)
 
         if msgs:
             touched = _append_messages(channel_name, msgs)
@@ -282,6 +402,27 @@ def _poll_once(state: dict[str, str], token: str) -> dict[str, int]:
             # Update state to the largest id we just wrote
             state[channel_id] = max(m["id"] for m in msgs)
         counts[channel_name] = len(msgs)
+
+    # ── threads: fold each thread's messages UNDER its parent channel ──
+    # Only threads whose parent_id is a configured channel are captured;
+    # threads under any other channel are ignored.
+    tracked = {cid: name for name, cid in DIGEST_CHANNELS.items()}
+    for guild_id in _resolve_guild_ids(token):
+        try:
+            threads = _fetch_active_threads(guild_id, token)
+        except RuntimeError as e:
+            log.warning("active threads fetch failed for guild %s: %s",
+                        guild_id, e)
+            continue
+        for th in threads:
+            parent_id = str(th.get("parent_id", ""))
+            parent_name = tracked.get(parent_id)
+            if not parent_name:
+                continue
+            added = _ingest_thread(th, parent_name, parent_id, token, state)
+            if added:
+                counts[parent_name] = counts.get(parent_name, 0) + added
+
     return counts
 
 
@@ -384,6 +525,49 @@ def _reindex_all() -> int:
     return count
 
 
+def _backfill_threads() -> dict[str, int]:
+    """One-shot: ingest existing threads (active + archived) under their parents.
+
+    Reads each thread from its beginning. The watch loop's per-cycle active-
+    thread sweep handles ongoing capture; this backfills threads that existed
+    before thread capture was added.
+    """
+    token = _load_token()
+    if not token:
+        log.error("no Discord token; cannot backfill threads")
+        return {}
+    state = _load_state()
+    counts: dict[str, int] = {}
+    tracked = {cid: name for name, cid in DIGEST_CHANNELS.items()}
+
+    for guild_id in _resolve_guild_ids(token):
+        try:
+            active = _fetch_active_threads(guild_id, token)
+        except RuntimeError as e:
+            log.warning("active-thread backfill failed for guild %s: %s",
+                        guild_id, e)
+            continue
+        for th in active:
+            parent_id = str(th.get("parent_id", ""))
+            parent_name = tracked.get(parent_id)
+            if parent_name:
+                counts[parent_name] = counts.get(parent_name, 0) + _ingest_thread(
+                    th, parent_name, parent_id, token, state, from_start=True)
+
+    for parent_name, parent_id in DIGEST_CHANNELS.items():
+        try:
+            archived = _fetch_archived_threads(parent_id, token)
+        except RuntimeError as e:
+            log.warning("archived-thread fetch failed for %s: %s", parent_name, e)
+            continue
+        for th in archived:
+            counts[parent_name] = counts.get(parent_name, 0) + _ingest_thread(
+                th, parent_name, parent_id, token, state, from_start=True)
+
+    _save_state(state)
+    return counts
+
+
 # ─────────────────────────── entry points ───────────────────────────
 
 
@@ -427,6 +611,9 @@ def main(argv: list[str] | None = None) -> int:
                    help="regenerate all markdown shadows from jsonl, exit")
     p.add_argument("--prune-only", action="store_true",
                    help="just delete files older than retention, exit")
+    p.add_argument("--backfill-threads", action="store_true",
+                   help="one-shot: ingest existing active + archived threads "
+                        "under their parents, exit")
     args = p.parse_args(argv)
 
     if args.reindex:
@@ -434,6 +621,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.prune_only:
         print(f"pruned {_prune_old()} files older than {RETENTION_DAYS} days")
+        return 0
+    if args.backfill_threads:
+        print(json.dumps(_backfill_threads(), indent=2))
         return 0
     if args.watch:
         run_forever()

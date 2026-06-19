@@ -133,6 +133,89 @@ def _fetch_channel(channel_id: str, after_ms: int, token: str) -> list[dict]:
     return out
 
 
+def _get_guild_id(channel_id: str, token: str) -> str | None:
+    """Return the guild (server) id that owns a channel, or None on failure.
+
+    Used to reach the guild-wide active-threads endpoint — Discord lists active
+    threads per guild, not per channel.
+    """
+    url = f"{DISCORD_API}/channels/{channel_id}"
+    req = urllib.request.Request(url, headers={
+        "Authorization": f"Bot {token}",
+        "User-Agent": "cc-discord-kit digest (python urllib)",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            obj = json.loads(resp.read())
+        return obj.get("guild_id")
+    except (urllib.error.HTTPError, urllib.error.URLError,
+            json.JSONDecodeError, OSError):
+        return None
+
+
+def _fetch_active_threads(guild_id: str, token: str) -> list[dict]:
+    """Return all active (non-archived) threads in the guild.
+
+    Each thread dict carries `id`, `name`, and `parent_id` (the channel it
+    lives under). Posting to an archived thread auto-unarchives it, so the
+    active set always covers any thread with recent activity.
+    """
+    url = f"{DISCORD_API}/guilds/{guild_id}/threads/active"
+    req = urllib.request.Request(url, headers={
+        "Authorization": f"Bot {token}",
+        "User-Agent": "cc-discord-kit digest (python urllib)",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            obj = json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(
+            f"Discord API {e.code} for guild {guild_id} active threads: "
+            f"{e.read()[:200]!r}"
+        ) from e
+    return obj.get("threads", []) or []
+
+
+def _fetch_archived_threads(channel_id: str, token: str,
+                            limit: int = 100) -> list[dict]:
+    """Return public archived threads under a channel (one-time backfill).
+
+    Paginates by the `before` archive-timestamp cursor, capped at a few pages.
+    Each thread dict carries `id`, `name`, and `parent_id`.
+    """
+    out: list[dict] = []
+    before: str | None = None
+    pages = 0
+    while pages < 5:  # ~500 archived threads is plenty for a backfill
+        params = {"limit": str(limit)}
+        if before:
+            params["before"] = before
+        url = (f"{DISCORD_API}/channels/{channel_id}/threads/archived/public"
+               f"?{urllib.parse.urlencode(params)}")
+        req = urllib.request.Request(url, headers={
+            "Authorization": f"Bot {token}",
+            "User-Agent": "cc-discord-kit digest (python urllib)",
+        })
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                obj = json.loads(resp.read())
+        except urllib.error.HTTPError as e:
+            raise RuntimeError(
+                f"Discord API {e.code} for channel {channel_id} archived "
+                f"threads: {e.read()[:200]!r}"
+            ) from e
+        threads = obj.get("threads", []) or []
+        out.extend(threads)
+        pages += 1
+        if not obj.get("has_more") or not threads:
+            break
+        last_meta = threads[-1].get("thread_metadata", {}) or {}
+        before = last_meta.get("archive_timestamp")
+        if not before:
+            break
+    return out
+
+
 _FETCH_CACHE: dict[int, tuple[float, list]] = {}
 _FETCH_CACHE_TTL_SEC = 60.0
 

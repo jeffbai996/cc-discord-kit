@@ -721,6 +721,63 @@ tr:hover .row-delete-btn { opacity: 0.6; }
   .row-delete-btn { opacity: 0.4; }
   .expand-cell, .row-actions { width: 1.2rem; }
 }
+
+/* sub-tabs: nest a secondary view (e.g. Deep) under a primary page without
+   adding a top-nav item. */
+.subtabs { display: flex; gap: 0.4rem; margin-bottom: 1rem; border-bottom: 1px solid var(--bg-3); }
+.subtab { padding: 0.35rem 0.75rem; color: var(--muted); text-decoration: none;
+  border-bottom: 2px solid transparent; margin-bottom: -1px; font-size: 0.9rem; }
+.subtab:hover { color: var(--fg); }
+.subtab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+/* deep index — category sections + memory-page-style rows */
+.deep-cat { display: flex; align-items: baseline; gap: 0.5rem;
+  margin: 1.8rem 0 0.4rem; padding-bottom: 0.35rem; border-bottom: 1px solid var(--bg-3); }
+.deep-cat-name { font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--fg); font-weight: 700; }
+.deep-cat-count { font-size: 0.7rem; color: var(--muted); background: var(--bg-3);
+  padding: 0.05rem 0.45rem; border-radius: 999px; }
+.deep-table { width: 100%; border-collapse: collapse; }
+.deep-table td { padding: 0.5rem 0.55rem; border-bottom: 1px solid var(--bg-3); vertical-align: top; }
+.deep-table tr:last-child td { border-bottom: none; }
+.deep-table tr:hover td { background: var(--bg-2); }
+.deep-table .type-col { width: 6.5rem; white-space: nowrap; }
+.deep-desc { font-size: 0.8rem; margin-top: 0.2rem; line-height: 1.45; }
+/* rendered deep .md doc — readable long-form */
+.deep-doc { max-width: 80ch; line-height: 1.6; }
+.deep-doc h1, .deep-doc h2, .deep-doc h3 { margin: 1.2rem 0 0.5rem; }
+.deep-doc code { background: var(--bg-3); padding: 0.1rem 0.3rem; border-radius: 4px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.85em; }
+.deep-doc pre { background: var(--bg-2); padding: 0.8rem; border-radius: var(--radius);
+  overflow-x: auto; border: 1px solid var(--bg-3); }
+.deep-doc pre code { background: none; padding: 0; }
+.deep-doc table { border-collapse: collapse; margin: 0.6rem 0; }
+.deep-doc th, .deep-doc td { border: 1px solid var(--bg-3); padding: 0.3rem 0.6rem; }
+.deep-doc blockquote { border-left: 3px solid var(--bg-3); margin: 0.6rem 0; padding-left: 0.8rem; color: var(--muted); }
+.deep-doc a.wikilink { color: var(--accent); text-decoration: none; border-bottom: 1px dotted var(--accent); }
+.deep-doc a.wikilink:hover { border-bottom-style: solid; }
+/* deep CRUD — header actions + new/edit forms */
+.deep-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin: 0 0 1rem; }
+.deep-file-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin: 0.2rem 0 0.4rem; }
+.deep-file-actions { display: flex; gap: 0.4rem; }
+.deep-del:hover { color: #ff7b72; border-color: rgba(255,123,114,0.4); }
+.deep-form { display: flex; flex-direction: column; gap: 0.9rem; max-width: 80ch; }
+.deep-form label { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.82rem; color: var(--muted); }
+.deep-form input, .deep-form textarea { background: var(--bg-2); border: 1px solid var(--bg-3);
+  border-radius: var(--radius); color: var(--fg); padding: 0.5rem 0.6rem; font-size: 0.9rem; width: 100%; }
+.deep-form textarea { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.82rem; line-height: 1.5; resize: vertical; }
+.deep-form input:focus, .deep-form textarea:focus { outline: none; border-color: var(--accent); }
+.deep-form-row { display: flex; gap: 0.9rem; }
+.deep-form-row label { flex: 1; }
+.deep-form-actions { display: flex; gap: 0.6rem; align-items: center; }
+.deep-raw { background: var(--bg-2); border: 1px solid var(--bg-3); border-radius: var(--radius);
+  padding: 0.9rem; overflow-x: auto; white-space: pre-wrap; font-size: 0.82rem; line-height: 1.5; max-width: 80ch; }
+.deep-undobar { display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  background: var(--bg-2); border: 1px solid var(--bg-3); border-radius: var(--radius);
+  padding: 0.4rem 0.7rem; margin-bottom: 1rem; font-size: 0.82rem; }
+.deep-health { background: rgba(207,122,0,0.12); border: 1px solid rgba(207,122,0,0.35);
+  color: #ffa657; border-radius: var(--radius); padding: 0.6rem 0.85rem; margin-bottom: 1rem; font-size: 0.83rem; }
+.deep-health code { background: rgba(0,0,0,0.25); }
+.deep-health div { margin-top: 0.3rem; }
 </style>
 </head>
 <body>
