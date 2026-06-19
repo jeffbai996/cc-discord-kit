@@ -875,8 +875,7 @@ def deep_promote(fname):
             return render_template("deep_promote.html", fname=fname, meta=meta,
                                    deftype=mtype, error="summary text is required",
                                    form=request.form)
-        m = store.save_memory(text, type=mtype, name=name, tags=tags,
-                              author="web:deep-promote")
+        m = store.save_memory(text, type=mtype, name=name, tags=tags)
         return redirect(url_for("memory_detail", memory_id=m["id"]))
     deftype = meta["kind"] if meta["kind"] in ("project", "reference", "feedback", "user") else "reference"
     return render_template("deep_promote.html", fname=fname, meta=meta,

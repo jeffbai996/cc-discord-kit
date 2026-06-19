@@ -343,10 +343,11 @@ def _ingest_thread(thread: dict, parent_name: str, parent_id: str,
         return 0
     thread_name = thread.get("name", "") or ""
     last_id = state.get(thread_id)
-    if last_id:
-        after_ms = (int(last_id) >> 22) + DISCORD_EPOCH_MS
-    elif from_start:
+    if from_start:
+        # backfill reads from the thread's start regardless of any saved cursor
         after_ms = DISCORD_EPOCH_MS  # snowflake 0 → from the thread's start
+    elif last_id:
+        after_ms = (int(last_id) >> 22) + DISCORD_EPOCH_MS
     else:
         after_ms = _initial_cursor_ms()
 
