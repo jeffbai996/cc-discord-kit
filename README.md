@@ -58,6 +58,23 @@ Your agent is running a task in the terminal. Here's the same turn, in your Disc
 
 `!agents` works the same way — it replies with a snapshot of the panel above, in any mode, even when live surfacing is off.
 
+**Or open a live terminal pane** — send a bare `!` and one pinned message becomes a real scrollback, PATCHed in place every command instead of a new reply each time:
+
+> **you:** `!`
+> **bot:**
+> ```
+> $ ▏
+> ```
+> **you:** `!ls`
+> **bot:** *(same message, edited)*
+> ```
+> $ ls
+> README.md  cli.py  store.py  hooks/
+> $ ▏
+> ```
+
+Close it with `!exit` (or `!q`); an idle pane auto-expires after 30 minutes back to one-shot mode.
+
 All of it is **opt-in per channel** and **off by default**. Pick how much you want to see — silent, just status emoji, narration, or full diffs.
 
 See [Tool-trace modes](#tool-trace-by-example) for the full mode list, and [The two halves](#the-two-halves) for how it's built.
@@ -517,6 +534,16 @@ Multi-paragraph bodies render naturally with blank lines between.
 Cards cover save (`💾`), edit (`✏️`), and delete (`🗑️`) for both memory and journal. The hook reads `DISCORD_BOT_TOKEN` from `CCDK_DISCORD_TOKEN` first, then falls back to `$CLAUDE_PLUGIN_STATE_DIR/.env` and `~/.claude/channels/discord/.env` so the same setup as the rest of your Discord integration works without extra config.
 
 If no Discord origin is in the user message (e.g. the save happened in a terminal session), no card is posted — the CLI's own `Saved #N` output is the confirmation in that case.
+
+### Tap-to-act: one-tap controls from Discord
+
+Cards aren't just read-only confirmations — the owner can **tap** them to drive the agent. Built + verified 2026-06-20.
+
+- **The trusted relay (load-bearing).** The Claude Code Discord plugin drops every bot-authored message, so a reaction the helper bot hears can't reach the asking agent's `--channels` session. A small HMAC-signed plugin patch (`discord_plugin_patch.py` Fix 4) opens the filter only for the helper's signed `⟦vc-relay:<hex>⟧` messages → delivered to the session as a normal prompt. **Without this, every tap dead-ends.** The helper signs via `choice_card.deliver_pick()`.
+- **Veto cards** — every save/edit/delete card carries ✅ keep / ❌. ❌ **rejects** a save (hard-delete + free the id), **undoes** an edit (revert to the before-snapshot), or **undoes** a delete (restore). 1h window; the card sticky-bumps to the channel bottom; pending items also show in the web `/pending` pane + nav badge. So bots can write liberally — a bad write is one tap from reversal. (`memory_veto.py`)
+- **Choice cards** — `squad-store choice ask "<q>" "<opt1>" "<opt2>" …` posts a numbered tap card; the owner taps a number and the pick is relayed back into the session. The channel-safe replacement for `AskUserQuestion` (which the `askuser_guard` PreToolUse hook hard-blocks in bot sessions, handing back the exact `choice ask` command).
+- **Interrupt + retry** — send a lone `❌` message to stop the bot's current turn (the patched plugin writes the stop flag the `cc-stop-check` hook reads); tap 🔁 on the "🛑 Stopped" reply to relay a retry.
+- **Plugin-mod durability** — `discord_plugin_patch.py` keeps every local plugin edit (presence, stickers, relay, `/effort` pass-through, lone-❌ stop-intercept) alive across plugin updates: idempotent anchor-based fixes re-applied each `SessionStart`, with a self-test that screams if a marker goes missing.
 
 ## Discord bot
 
