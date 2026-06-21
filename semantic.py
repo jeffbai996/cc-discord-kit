@@ -22,22 +22,79 @@ from __future__ import annotations
 
 import os
 import re
+import time
 
 import store
 import vecgrep_client as vg
 
-TOP_N = int(os.environ.get("CCDK_SEMANTIC_K", "3"))
+TOP_N = int(os.environ.get("CCDK_SEMANTIC_K", "3"))       # max authoritative HITS
+LEAD_N = int(os.environ.get("CCDK_SEMANTIC_LEAD_N", "2"))  # max lower-conf LEADS
+# FLOOR retained for files-recall (a plain score gate). Memory recall now tiers
+# by HOW a hit matched (see _tier) instead of a hard score floor — a hard floor
+# silently drops correct-but-conversational vector matches (person lookups land
+# at 15-30%). LEAD_FLOOR gates vector-only leads (junk vector-only peaks ~11%,
+# correct leads bottom ~14%, so 13 splits them).
 FLOOR = float(os.environ.get("CCDK_SEMANTIC_FLOOR", "50"))
+LEAD_FLOOR = float(os.environ.get("CCDK_SEMANTIC_LEAD_FLOOR", "13"))
 MIN_PROMPT_CHARS = 12          # skip "ok" / "go" / "thanks"
 FETCH_K = max(12, TOP_N * 4)   # over-fetch so dedupe still yields TOP_N distinct
 SNIPPET_CHARS = 150
 FILES_CORPUS = os.environ.get("CCDK_SEMANTIC_FILES_CORPUS", "files")
+
+# Observability: one line per recall outcome (down|empty|hit) so unreliable
+# retrieval becomes measurable. Auto-pruned to stay bounded.
+RECALL_LOG = os.path.join(store.DATA_DIR, "recall.log")
+RECALL_LOG_MAX_LINES = int(os.environ.get("CCDK_RECALL_LOG_MAX", "2000"))
 
 
 def _enabled() -> bool:
     return os.environ.get("CCDK_SEMANTIC_RECALL", "1").strip().lower() not in (
         "0", "off", "false", "no",
     )
+
+
+def _log_recall(outcome: str, n_raw: int, *, n_hits: int = 0, n_leads: int = 0) -> None:
+    """Append one outcome line: `<unix_ts> <outcome> raw hits leads`. Auto-pruned
+    to the last half when it exceeds RECALL_LOG_MAX_LINES. Best-effort, never raises."""
+    try:
+        line = f"{int(time.time())} {outcome} raw={n_raw} hits={n_hits} leads={n_leads}\n"
+        os.makedirs(os.path.dirname(RECALL_LOG), exist_ok=True)
+        with open(RECALL_LOG, "a", encoding="utf-8") as f:
+            f.write(line)
+        if os.path.getsize(RECALL_LOG) > RECALL_LOG_MAX_LINES * 64:
+            _prune_recall_log()
+    except OSError:
+        pass
+
+
+def _prune_recall_log() -> None:
+    try:
+        with open(RECALL_LOG, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        if len(lines) <= RECALL_LOG_MAX_LINES:
+            return
+        keep = lines[-(RECALL_LOG_MAX_LINES // 2):]
+        tmp = RECALL_LOG + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.writelines(keep)
+        os.replace(tmp, RECALL_LOG)
+    except OSError:
+        pass
+
+
+def _tier(pct: float, matched_by) -> str:
+    """Classify by HOW a hit matched, not just score (score alone is an unreliable
+    signal/noise separator: off-topic queries make bm25-only matches at 80-90%,
+    correct conversational queries make vector-only matches at 15-30%).
+      vector+bm25 → HIT (authoritative); vector-only ≥LEAD_FLOOR → LEAD (semantic
+      match keywords missed — the person-lookup saver); bm25-only → DROP (noise)."""
+    by = set(matched_by or [])
+    has_vec, has_bm = "vector" in by, "bm25" in by
+    if has_vec and has_bm:
+        return "hit"
+    if has_vec and pct >= LEAD_FLOOR:
+        return "lead"
+    return "drop"
 
 
 def _clean(text: str) -> str:
@@ -47,7 +104,11 @@ def _clean(text: str) -> str:
 
 
 def format_recall(prompt: str) -> str:
-    """Return a compact recall block for `prompt`, or "" if nothing/unavailable."""
+    """Return a tiered recall block for `prompt`, or "" if nothing/unavailable.
+
+    Two tiers (see _tier): authoritative HITS (treat as known) and lower-
+    confidence LEADS (verify before relying). The header is a directive so the
+    bot acts on the memory instead of skimming past it."""
     if not _enabled():
         return ""
     prompt = (prompt or "").strip()
@@ -55,32 +116,50 @@ def format_recall(prompt: str) -> str:
         return ""
 
     try:
-        # Deduped + hybrid-ranked (memory,pct,matched_by); want_kind keeps
+        # Deduped + hybrid-ranked (memory, pct, matched_by); want_kind keeps
         # journal chunks out of the memory recall block.
         ranked = vg.search_corpus_to_ids_with_match(
             prompt, vg.VECGREP_CORPUS_MEMORIES, top_k=FETCH_K, want_kind="memory",
         )
     except vg.VecgrepUnavailable:
+        _log_recall("down", 0)   # observability: distinguish down from empty
         return ""          # fail silent — index fallback covers us
     except Exception:
+        _log_recall("down", 0)
         return ""
 
-    hits = [(eid, pct) for eid, pct, _by in ranked if pct >= FLOOR][:TOP_N]
-    if not hits:
+    tiers = [(eid, pct, _tier(pct, by)) for eid, pct, by in ranked]
+    hits = [(eid, pct) for eid, pct, t in tiers if t == "hit"][:TOP_N]
+    leads = [(eid, pct) for eid, pct, t in tiers if t == "lead"][:LEAD_N]
+    if not hits and not leads:
+        _log_recall("empty", len(ranked))
         return ""
 
     by_id = {m.get("id"): m for m in store.load_memories()}
-    lines = ["RELEVANT TO YOUR MESSAGE (semantic recall — full text via `ccdk memory show <id>`):"]
-    for eid, pct in hits:
+
+    def _row(eid, pct):
         mem = by_id.get(eid)
         if not mem:
-            continue
+            return None
         name = (mem.get("name") or "").strip()
         snippet = _clean(mem.get("text", ""))
         body = f"{name} — {snippet}" if name else snippet
-        if body:
-            lines.append(f"  • #{eid} [{pct:.0f}%] {body}")
-    return "\n".join(lines) if len(lines) > 1 else ""
+        return f"  • #{eid} [{pct:.0f}%] {body}" if body else None
+
+    out: list[str] = []
+    if hits:
+        out.append(
+            "★ MEMORY HITS for this message — treat as authoritative, prefer over "
+            "guessing. Full body: `ccdk memory show <id>`.")
+        out += [r for r in (_row(e, p) for e, p in hits) if r]
+    if leads:
+        out.append(
+            "  possible leads (lower confidence — `ccdk memory show <id>` to "
+            "confirm before relying):")
+        out += [r for r in (_row(e, p) for e, p in leads) if r]
+
+    _log_recall("hit", len(ranked), n_hits=len(hits), n_leads=len(leads))
+    return "\n".join(out) if len(out) > 1 else ""
 
 
 def _file_label(source_id: str) -> str:
