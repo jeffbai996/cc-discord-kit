@@ -106,6 +106,30 @@ def test_toggle_off(fresh_store, monkeypatch):
     assert semantic.format_recall("a sufficiently long query here") == ""
 
 
+def test_recall_stats_summarizes_outcomes(fresh_store, monkeypatch, tmp_path):
+    """recall_stats parses recall.log into hit/empty/down counts — the log is
+    useless if nothing reads it."""
+    sem = _reload_semantic()
+    monkeypatch.setattr(sem, "RECALL_LOG", str(tmp_path / "recall.log"))
+    with open(sem.RECALL_LOG, "w") as f:
+        f.write("1000 hit raw=12 hits=2 leads=1\n")
+        f.write("1001 hit raw=12 hits=0 leads=3\n")
+        f.write("1002 empty raw=5 hits=0 leads=0\n")
+        f.write("1003 down raw=0 hits=0 leads=0\n")
+    s = sem.recall_stats()
+    assert s["total"] == 4
+    assert s["hit"] == 2 and s["empty"] == 1 and s["down"] == 1
+    assert abs(s["hit_rate"] - 0.5) < 1e-9
+    assert abs(s["avg_leads"] - 2.0) < 1e-9
+
+
+def test_recall_stats_empty_log(fresh_store, monkeypatch, tmp_path):
+    sem = _reload_semantic()
+    monkeypatch.setattr(sem, "RECALL_LOG", str(tmp_path / "nope.log"))
+    s = sem.recall_stats()
+    assert s["total"] == 0 and s["hit_rate"] == 0.0
+
+
 def test_files_recall_renders_and_is_fail_silent(fresh_store, monkeypatch):
     _reload_semantic()
     import semantic, vecgrep_client
