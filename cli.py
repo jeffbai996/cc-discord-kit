@@ -462,6 +462,30 @@ def cmd_memory(args: argparse.Namespace) -> int:
     return 2
 
 
+def cmd_recall_stats(args: argparse.Namespace) -> int:
+    """Read recall.log (per-turn recall observability) into a summary, so 'is
+    retrieval flaking?' has an answer with data instead of a vibe."""
+    import semantic
+    win = {"all": 0, "1h": 3600, "24h": 86400, "7d": 604800}.get(args.window, 0)
+    s = semantic.recall_stats(window_sec=win)
+    label = args.window if args.window else "all"
+    if not s["total"]:
+        print(f"recall.log: no entries{f' in last {label}' if win else ''} "
+              f"(recall hasn't run, or log is empty/missing).")
+        return 0
+    print(f"RECALL STATS ({label}) — {s['total']} recalls logged")
+    print("-" * 50)
+    print(f"  served (hit/lead):  {s['hit']:>5}  ({s['hit_rate']*100:.0f}%)")
+    print(f"  empty (no match):   {s['empty']:>5}")
+    print(f"  down (vecgrep err): {s['down']:>5}  ({s['down_rate']*100:.0f}%)")
+    print(f"  avg hits/recall:    {s['avg_hits']:.1f}")
+    print(f"  avg leads/recall:   {s['avg_leads']:.1f}")
+    if s["down_rate"] > 0.1:
+        print(f"  ⚠ {s['down_rate']*100:.0f}% down — vecgrep/embed flaking; "
+              f"check the embed endpoint.")
+    return 0
+
+
 def cmd_recall(args: argparse.Namespace) -> int:
     entries, source = store.recall_memories(
         args.query, bot=_detect_calling_bot(), top_k=args.top_k,
@@ -1180,6 +1204,11 @@ def build_parser() -> argparse.ArgumentParser:
     rec.add_argument("query")
     rec.add_argument("--top-k", type=int, default=8)
 
+    # recall-stats — read the per-turn recall.log into a health summary
+    rst = top.add_parser("recall-stats",
+                         help="summarize recall.log (is retrieval flaking?)")
+    rst.add_argument("--window", choices=["all", "1h", "24h", "7d"], default="all")
+
     # fact — reusable-string store for volatile literals
     fct = top.add_parser(
         "fact",
@@ -1258,6 +1287,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_persona(args)
     if args.cmd == "recall":
         return cmd_recall(args)
+    if args.cmd == "recall-stats":
+        return cmd_recall_stats(args)
     if args.cmd == "fact":
         return cmd_fact(args)
     if args.cmd in ("capabilities", "caps"):

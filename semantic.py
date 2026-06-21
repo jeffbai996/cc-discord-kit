@@ -82,6 +82,52 @@ def _prune_recall_log() -> None:
         pass
 
 
+def recall_stats(window_sec: int = 0) -> dict:
+    """Summarize recall.log so the observability is readable (the log is useless
+    if nothing reads it). Returns counts by outcome (hit/empty/down), hit rate,
+    and avg hits/leads per recall. window_sec>0 restricts to the last N seconds.
+    Empty/missing log → zeroed summary, never raises."""
+    total = 0
+    by = {"hit": 0, "empty": 0, "down": 0}
+    sum_hits = sum_leads = 0
+    cutoff = (time.time() - window_sec) if window_sec else 0
+    try:
+        with open(RECALL_LOG, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+    except OSError:
+        lines = []
+    for ln in lines:
+        parts = ln.split()
+        if len(parts) < 2:
+            continue
+        try:
+            ts = float(parts[0])
+        except ValueError:
+            continue
+        if cutoff and ts < cutoff:
+            continue
+        outcome = parts[1]
+        if outcome not in by:
+            continue
+        total += 1
+        by[outcome] += 1
+        for p in parts[2:]:
+            if p.startswith("hits="):
+                sum_hits += int(p[5:] or 0)
+            elif p.startswith("leads="):
+                sum_leads += int(p[6:] or 0)
+    served = by["hit"]
+    return {
+        "total": total,
+        "hit": by["hit"], "empty": by["empty"], "down": by["down"],
+        "hit_rate": (served / total) if total else 0.0,
+        "down_rate": (by["down"] / total) if total else 0.0,
+        "avg_hits": (sum_hits / served) if served else 0.0,
+        "avg_leads": (sum_leads / served) if served else 0.0,
+        "window_sec": window_sec,
+    }
+
+
 def _tier(pct: float, matched_by) -> str:
     """Classify by HOW a hit matched, not just score (score alone is an unreliable
     signal/noise separator: off-topic queries make bm25-only matches at 80-90%,
