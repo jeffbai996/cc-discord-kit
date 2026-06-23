@@ -1003,28 +1003,15 @@ def _slide_replied(chat_id: str, msg_id: str, mode: str) -> int:
 
 
 def handle_replied(payload: dict) -> int:
-    """PostToolUse on Discord reply tool: ✅ on the original inbound message.
+    """PostToolUse on the Discord reply tool — intentionally a no-op.
 
-    Sliding behavior: only the most recent replied message in this channel
-    keeps ✅. Older ✅'s get cleared as new replies land.
+    A reply can be INTERMEDIATE: the bot posts a status message between two
+    tasks in the same turn and keeps working. So ✅ must mean the whole TURN is
+    done, not "done with this one message". The ✅ is stamped only at turn-end by
+    handle_terminal / the retro-finalizer, which detect "the turn replied" from
+    the transcript (assistant_called_discord_reply). Kept wired so the contract
+    lives in one place; re-enabling per-reply state here stays a one-liner.
     """
-    tool_name = payload.get("tool_name", "")
-    if tool_name not in DISCORD_REPLY_TOOLS:
-        return 0
-    transcript = payload.get("transcript_path", "")
-    last = _last_user_entry(transcript)
-    if not last:
-        return 0
-    user_text = _extract_text(last)
-    origins = parse_discord_origins(user_text)
-    if not origins:
-        return 0
-    # Slide ✅ through every inbound msg in the turn. _slide_replied unstamps
-    # the prior parked ✅ on each call, so within a channel only the LAST
-    # inbound ends up parked — which matches the existing single-msg
-    # contract. Across different channels each parks independently.
-    for chat_id, msg_id in origins:
-        _slide_replied(chat_id, msg_id, "replied")
     return 0
 
 
