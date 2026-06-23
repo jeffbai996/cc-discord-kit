@@ -11,6 +11,24 @@ So you can step away from the terminal and still see what your agent is doing, w
 
 ---
 
+## Contents
+
+- [What it looks like](#what-it-looks-like)
+- [The two halves](#the-two-halves)
+- [What's in here](#whats-in-here)
+- [Install](#install)
+- [Configuration](#configuration)
+- [CLI](#cli)
+- [Web UI](#web-ui)
+- [Memory schema](#memory-schema)
+- [Saving from agents](#saving-from-agents)
+- [Hooks (Claude Code agents)](#hooks-claude-code-agents)
+- [Discord bot](#discord-bot)
+- [Spoken voice (TTS / STT)](#spoken-voice-tts--stt)
+- [Tests](#tests)
+- [Inventory probes](#inventory-probes)
+- [License](#license)
+
 ## What it looks like
 
 Your agent is running a task in the terminal. Here's the same turn, in your Discord channel:
