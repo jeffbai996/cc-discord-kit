@@ -37,12 +37,98 @@ import fcntl
 import json
 import os
 import re
+import subprocess
 import sys
 import time as _time
 import traceback
 import urllib.parse
 import urllib.request
 from typing import Any
+
+
+# Effort levels that imply extended thinking is engaged by default.
+_THINKING_EFFORT_LEVELS = {"high", "xhigh", "max"}
+
+
+def _settings_candidate_paths() -> list[str]:
+    """Settings files to merge, lowest→highest precedence LAST.
+
+    Mirrors how Claude Code layers settings: the user settings
+    ($CLAUDE_CONFIG_DIR/settings.json, else ~/.claude/settings.json) are the
+    base; a project .claude/settings.json (resolved from CWD) overrides on top.
+    We read both and let the later one win per-key.
+    """
+    paths: list[str] = []
+    cfg = os.environ.get("CLAUDE_CONFIG_DIR", "")
+    user_default = os.path.expanduser("~/.claude/settings.json")
+    paths.append(os.path.join(cfg, "settings.json") if cfg else user_default)
+    # Project-local override, if a .claude/settings.json sits at CWD — but never
+    # when it resolves to the user-level settings file. A bot launched from $HOME
+    # has getcwd()==$HOME, so getcwd()/.claude/settings.json IS the user file; a
+    # realpath compare avoids re-linking a per-bot CLAUDE_CONFIG_DIR back to it.
+    proj = os.path.join(os.getcwd(), ".claude", "settings.json")
+    if (os.path.exists(proj)
+            and os.path.realpath(proj) != os.path.realpath(user_default)):
+        paths.append(proj)
+    return paths
+
+
+def extended_thinking_settings() -> tuple[bool, str]:
+    """Return (extended_thinking_on, effort) from effective CC settings.
+
+    FAILS CLOSED: any read/parse error or missing keys → (False, "").
+    extended_thinking_on is True when EITHER alwaysThinkingEnabled is true OR
+    effortLevel ∈ {high, xhigh, max}. effort is the raw effortLevel string.
+    """
+    merged: dict[str, Any] = {}
+    for path in _settings_candidate_paths():
+        try:
+            with open(path) as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                merged.update(data)
+        except (OSError, json.JSONDecodeError, ValueError):
+            continue  # fail closed on this layer, keep any earlier merge
+    effort = merged.get("effortLevel", "")
+    if not isinstance(effort, str):
+        effort = ""
+    always = merged.get("alwaysThinkingEnabled") is True
+    return (always or (effort in _THINKING_EFFORT_LEVELS)), effort
+
+
+def _spawn_think_updater(
+    chat_id: str, msg_id: str, effort: str, transcript: str,
+) -> None:
+    """Fire-and-forget the detached thinking-mode updater.
+
+    Double-fork + setsid (start_new_session) so the child fully detaches from
+    the hook process — the harness waits on the hook; the child must outlive it.
+    The child re-execs narrate.py with `--mode think-updater` for a clean
+    interpreter that reaches both the react helpers and the narrate post/edit
+    helpers. Wrapped so a spawn failure never propagates into the turn.
+    """
+    try:
+        narrate_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "narrate.py"
+        )
+        if not os.path.exists(narrate_path):
+            return
+        argv = [
+            sys.executable, narrate_path,
+            "--mode", "think-updater",
+            "--chat-id", chat_id,
+            "--message-id", msg_id,
+            "--effort", effort or "",
+            "--transcript", transcript or "",
+        ]
+        with open(os.devnull, "r+b") as devnull:
+            subprocess.Popen(
+                argv, stdin=devnull, stdout=devnull, stderr=devnull,
+                start_new_session=True, close_fds=True,
+            )
+    except Exception as e:
+        log(f"think-updater spawn failed chat={chat_id} msg={msg_id}: {e}")
+
 
 def _state_root() -> str:
     """Shared root for log + state files. Created on demand."""
@@ -956,6 +1042,34 @@ def handle_received(payload: dict) -> int:
     # speak before the bot replies, each gets its own ack.
     for chat_id, msg_id in origins:
         _do_react(chat_id, msg_id, EMOJI["received"], "received")
+
+    # THINKING INDICATOR: spawn one detached updater per channel's newest inbound
+    # message. The updater stamps 🤔 after a brief gap, then posts the standalone
+    # "🧠 Thinking…" indicator IF the turn does real work or reasoning (it
+    # self-suppresses on a bare reflexive reply). Spawned only when extended
+    # thinking is engaged (alwaysThinkingEnabled or a high effort level) — the
+    # turn can sit in a multi-minute think before the first tool fires, so the
+    # standalone indicator is the only working signal until then. handle_received
+    # must NOT block, so the gap + animation live in the detached child.
+    try:
+        thinking_on, effort = extended_thinking_settings()
+    except Exception as e:  # never let detection break the turn
+        log(f"thinking-detect crash (treating as OFF): {e}")
+        thinking_on, effort = False, ""
+    # The hook payload carries the LIVE session effort (what /effort set this
+    # session) — authoritative over the on-disk settings, which can be stale
+    # relative to a mid-session /effort change.
+    pe = payload.get("effort")
+    pe_level = pe.get("level") if isinstance(pe, dict) else None
+    if isinstance(pe_level, str) and pe_level:
+        effort = pe_level
+        thinking_on = thinking_on or (pe_level in _THINKING_EFFORT_LEVELS)
+    if thinking_on:
+        latest_per_channel: dict[str, str] = {}
+        for chat_id, msg_id in origins:
+            latest_per_channel[chat_id] = msg_id  # later overwrites → newest wins
+        for chat_id, msg_id in latest_per_channel.items():
+            _spawn_think_updater(chat_id, msg_id, effort, transcript)
     return 0
 
 
