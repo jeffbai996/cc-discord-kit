@@ -387,12 +387,31 @@ def remove_all_reactions(token: str, channel_id: str, message_id: str) -> bool:
 
 # --- identity gate + actions -------------------------------------------------
 
-def is_owner(user_id) -> bool:
-    """The wall: only the owner's verified Discord user_id can confirm."""
+def _allowed_tappers() -> frozenset[str]:
+    """Owner plus any CCDK_ALLOWED_TAPPERS members (comma-separated user IDs).
+
+    These extra users may tap CHOICE / VETO / TODO cards. The vecgrep-confirm
+    card stays owner-only regardless — it's gated by is_confirm_channel() (a
+    channel-level wall), so loosening is_owner() here does NOT widen who can
+    confirm a write proposal. Computed fresh each call so an env change applies
+    on the next tap without a restart."""
     owner = _get_owner_id()
-    if not owner:
-        return False  # fail-closed — no config means no confirms
-    return str(user_id) == owner
+    extra = os.environ.get("CCDK_ALLOWED_TAPPERS", "")
+    ids = ([owner] if owner else []) + [u.strip() for u in extra.split(",") if u.strip()]
+    return frozenset(ids)
+
+
+def is_owner(user_id) -> bool:
+    """Owner OR any CCDK_ALLOWED_TAPPERS member can tap cards.
+
+    Fail-closed: with no owner configured and no allowlist, returns False. The
+    vecgrep-confirm wall is preserved by the separate is_confirm_channel() gate
+    (the confirm card is only honored in the owner's private channel), so the
+    allowlist only ever widens choice/veto/todo taps, never write-confirms."""
+    allowed = _allowed_tappers()
+    if not allowed:
+        return False  # fail-closed — no config means no taps
+    return str(user_id) in allowed
 
 
 def is_confirm_channel(channel_id) -> bool:
