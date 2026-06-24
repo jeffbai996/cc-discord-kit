@@ -656,6 +656,23 @@ def _handle_tool_locked(
     return 0
 
 
+def handle_tool_prereply(payload: dict) -> int:
+    """No-op: the eager tool-trace anchor is disabled.
+
+    It used to pre-post an EMPTY "🔧 Tool trace…" message on every Discord
+    reply's PreToolUse so post-reply tool calls would fold in above the reply.
+    The cost: on a reply-only turn (most conversational replies use no tools)
+    that empty anchor was visible for the whole turn — a tool trace appearing
+    with no tool call. We now create the trace LAZILY, on the first real tool's
+    PostToolUse, so "no tool ⇒ no trace" holds. The remaining echo-first case
+    (reply, THEN tool work, leaving the trace below the reply) is handled by the
+    finalize-time swap in narrate (_swap_trace_below_reply). Kept as a callable
+    no-op so narrate's prereply dispatch resolves it cleanly; re-enabling the
+    eager anchor would be a one-line change here.
+    """
+    return 0
+
+
 def main() -> int:
     raw = sys.stdin.read()
     if not raw.strip():
