@@ -359,6 +359,39 @@ def read_bot_token() -> str | None:
     return None
 
 
+def read_helper_token() -> str | None:
+    """The central helper bot's Discord token — the bot that handles veto /
+    choice / todo card reactions centrally.
+
+    Cards must be POSTED with this token so the helper can later EDIT them in
+    place. Discord forbids editing another bot's message (cross-bot edit always
+    403s), so a card posted with the saving bot's own token can never be mutated
+    by the central handler — it falls back to a stray reply. The helper is a
+    member of every channel it manages, so it never 403s the way a per-channel
+    bot does on a channel it isn't in.
+
+    Resolution: CCDK_HELPER_DISCORD_TOKEN from the env (set for the server +
+    handler services via their EnvironmentFile), else parsed from
+    ~/.config/cc-discord-kit/env so a local CLI on the host resolves it too.
+    Returns None where it isn't configured — a remote CLI never posts cards
+    directly (the server does, and the server has it in env), so the caller's
+    own token is the safe fallback."""
+    tok = os.environ.get("CCDK_HELPER_DISCORD_TOKEN", "").strip()
+    if tok:
+        return tok
+    env_path = os.path.expanduser("~/.config/cc-discord-kit/env")
+    try:
+        with open(env_path) as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("CCDK_HELPER_DISCORD_TOKEN="):
+                    val = line.split("=", 1)[1].strip().strip('"').strip("'")
+                    return val or None
+    except OSError:
+        return None
+    return None
+
+
 def post_message(token: str, channel_id: str, content: str,
                  reply_to: str | None = None,
                  user_agent: str = "cc-discord-kit-card (1.0)") -> tuple[bool, str]:
