@@ -61,6 +61,12 @@ import bots_doctor  # noqa: E402
 import history  # noqa: E402
 import personas  # noqa: E402
 import vecgrep_client  # noqa: E402
+import choice_card  # noqa: E402
+import memory_veto  # noqa: E402
+import todo_card  # noqa: E402
+import vecgrep_confirm  # noqa: E402
+import relay_ledger  # noqa: E402
+import discord_card  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -144,6 +150,15 @@ _KNOWN_UNITS: list[str] = [u for u, _ in _SERVICES]
 
 
 # ─────────────────────────── helpers ───────────────────────────
+
+
+def _post_token() -> str:
+    """The token this handler POSTS with — its own identity (the gateway TOKEN
+    it's connected as). Falls back to vecgrep_confirm.read_bot_token() only
+    if TOKEN is unset. Using the handler's own token rather than a secondary
+    bot's closes the cross-bot-credential smell and ensures cards can be
+    bumped/settled in every channel this handler manages."""
+    return TOKEN or vecgrep_confirm.read_bot_token() or ""
 
 
 def _parse_csv(value: str | None) -> list[str]:
@@ -1585,6 +1600,586 @@ client.tree.add_command(jou_group)
 client.tree.add_command(bot_group)
 client.tree.add_command(squad_group)
 client.tree.add_command(persona_group)
+
+
+# ─────────────────────────── reaction-tap dispatch ───────────────────────────
+#
+# Reaction taps on posted cards dispatch here. Five card types are handled:
+#   1. vecgrep write-proposal cards  (private confirm channel only, default-DENY)
+#   2. memory/journal save cards     (any channel, ✅ approve / ❌ veto)
+#   3. deferred-choice cards         (any channel, number tap / ✏️ / ❌)
+#   4. to-do cards                   (any channel, ✅ keep / 🚫 cancel / ⭐ flag)
+#   5. 🔁 retry on a bot stop-ack
+#
+# Owner gate: vecgrep_confirm.is_owner() resolves CCDK_OWNER_DISCORD_USER_ID
+# (env var) → ~/.config/cc-discord-kit/owner_id file, fail-closed. Reused
+# throughout — no hardcoded user_id in source.
+
+
+async def _vc_react(token, channel_id, message_id, content):
+    """Post a short status line as a reply under the card, best-effort."""
+    try:
+        vecgrep_confirm.post_message(token, str(channel_id), content,
+                                     reply_to=str(message_id))
+    except Exception:
+        pass
+
+
+async def _settle_card_inline(bot_tok, channel_id, message_id, outcome) -> None:
+    """Collapse a card's prompt/hint row INTO `outcome`, IN PLACE, instead of
+    posting a separate reply. Only the card's author can edit it, so we fetch
+    the message, read its author, and edit with the matching token.
+    _collapse_hint handles both fenced and bare cards. Falls back to a reply
+    ONLY if the edit genuinely can't land (message gone, no usable token)."""
+    import asyncio
+    ch, mid = str(channel_id), str(message_id)
+    try:
+        msgobj = await asyncio.to_thread(_fetch_message, bot_tok, ch, mid)
+        if msgobj and msgobj.get("content"):
+            author_id = str((msgobj.get("author") or {}).get("id") or "")
+            etok = (bot_tok if (client.user and author_id == str(client.user.id))
+                    else discord_card.read_bot_token())
+            if etok:
+                new = memory_veto._collapse_hint(msgobj["content"], outcome)
+                if new != msgobj["content"] and await asyncio.to_thread(
+                        vecgrep_confirm.edit_message, etok, ch, mid, new):
+                    return
+    except Exception:
+        pass
+    await _vc_react(bot_tok, ch, mid, outcome)
+
+
+async def _ack_received(token, channel_id, message_id):
+    """Instant 'got it' the moment a tap registers — a 👀 reaction on the card,
+    before the (slower) action + result message. Without this the user can't
+    tell their tap landed vs silently failed. Runs in a thread so the blocking
+    HTTP doesn't hold the event loop."""
+    import asyncio
+    try:
+        await asyncio.to_thread(
+            vecgrep_confirm._add_reaction, token, str(channel_id),
+            str(message_id), "👀")
+    except Exception:
+        pass
+
+
+def _is_actionable_card_tap(payload, emoji) -> bool:
+    """Did a tap land on an ACTIONABLE button of one of our tracked cards?
+
+    Used to decide whether a non-owner tap deserves a 'permission denied' note
+    (a real card button) vs. silence (a stray reaction on an ordinary message).
+    Mirrors the dispatch table in on_raw_reaction_add — keep them in sync."""
+    mid = payload.message_id
+    if emoji in (memory_veto.KEEP_EMOJI, memory_veto.REJECT_EMOJI) and memory_veto.lookup(mid):
+        return True
+    crec = choice_card.lookup(mid)
+    if crec and (choice_card.is_cancel(emoji) or choice_card.is_type(emoji)
+                 or choice_card.emoji_to_index(emoji) is not None):
+        return True
+    if todo_card.emoji_action(emoji) is not None and todo_card.lookup(mid):
+        return True
+    if (vecgrep_confirm.is_confirm_channel(payload.channel_id)
+            and emoji in (vecgrep_confirm.CONFIRM_EMOJI, vecgrep_confirm.DISCARD_EMOJI)
+            and vecgrep_confirm.lookup_card(mid)):
+        return True
+    return False
+
+
+async def _deny_nonowner_card_tap(payload, emoji, bot_tok) -> None:
+    """A non-owner tapped a card button. Tell them why nothing happened instead
+    of failing silently — a silent no-op reads as the bot being broken. Stray
+    reactions on ordinary messages stay silent."""
+    if not _is_actionable_card_tap(payload, emoji):
+        return
+    await _vc_react(bot_tok, payload.channel_id, payload.message_id,
+                    "🔒 Only the owner can action this card.")
+
+
+@client.event
+async def on_raw_reaction_add(payload) -> None:
+    # Ignore our own seeded reactions; every card type is owner-gated.
+    if client.user and payload.user_id == client.user.id:
+        return
+
+    emoji = str(payload.emoji)
+    bot_tok = _post_token()  # the handler's own token — works in every channel it manages
+
+    if not vecgrep_confirm.is_owner(payload.user_id):
+        # The wall: only the verified owner acts. But a non-owner who tapped a
+        # real card button gets a visible 'permission denied' instead of silence.
+        await _deny_nonowner_card_tap(payload, emoji, bot_tok)
+        return
+
+    # 1) vecgrep proposal card (private confirm channel only, default-DENY).
+    if vecgrep_confirm.is_confirm_channel(payload.channel_id):
+        card = vecgrep_confirm.lookup_card(payload.message_id)
+        if card and emoji in (vecgrep_confirm.CONFIRM_EMOJI, vecgrep_confirm.DISCARD_EMOJI):
+            await _handle_vecgrep_react(payload, card, emoji, bot_tok)
+            return
+
+    # 2) memory/journal save card (any channel, default-ALLOW + ✅ approve / ❌ reject).
+    # No 👀 ack here — the veto handler posts a visible "✅ approved" / "❌ rejected"
+    # reply under the card, so the 👀 is redundant clutter.
+    if emoji in (memory_veto.KEEP_EMOJI, memory_veto.REJECT_EMOJI):
+        rec = memory_veto.lookup(payload.message_id)
+        if rec:
+            await _handle_memory_veto(payload, rec, emoji, bot_tok)
+            return
+
+    # 3) deferred-choice card (any channel). A number tap picks an option; the
+    # two escape hatches every card carries: ✏️ = "I'll type my own answer"
+    # (nudge + relay so the session waits), ❌ = back out (relays a cancel so the
+    # asking session doesn't hang waiting on a tap). Look the card up once, then
+    # dispatch — keeps ❌/✏️ from colliding with the veto/todo handlers, which
+    # only fire on THEIR own tracked message ids.
+    crec = choice_card.lookup(payload.message_id)
+    if crec:
+        if choice_card.is_cancel(emoji):
+            await _handle_choice_cancel(payload, crec, bot_tok)
+            return
+        if choice_card.is_type(emoji):
+            await _handle_choice_type(payload, crec, bot_tok)
+            return
+        idx = choice_card.emoji_to_index(emoji)
+        if idx is not None:
+            log.info("choice tap: emoji=%r idx=%s msg=%s", emoji, idx, payload.message_id)
+            await _handle_choice(payload, crec, idx, bot_tok)
+            return
+
+    # 4) to-do card (any channel): ✅ keep / 🚫 cancel RESOLVE the to-do; ⭐
+    # toggles its flag and leaves it actionable. Owner-gated like the rest.
+    action = todo_card.emoji_action(emoji)
+    if action is not None:
+        rec = todo_card.lookup(payload.message_id)
+        if rec:
+            await _handle_todo(payload, rec, action, bot_tok)
+            return
+
+    # 5) 🔁 retry on a stop-ack: after a lone-❌ interrupt, the model ends with a
+    # "🛑 Stopped" reply and reacts 🔁 to it. Owner taps that 🔁 → relay a retry
+    # instruction back to the asking session so it re-runs the stopped task.
+    if emoji.replace("️", "") == "🔁".replace("️", ""):
+        await _handle_retry(payload, bot_tok)
+        return
+
+
+async def _handle_vecgrep_react(payload, card, emoji, bot_tok) -> None:
+    pid = card["proposal_id"]
+    doc_id = card.get("doc_id", "?")
+    if emoji == vecgrep_confirm.DISCARD_EMOJI:
+        ok, msg = vecgrep_confirm.discard(pid)
+        vecgrep_confirm.forget_card(payload.message_id)
+        await _settle_card_inline(
+            bot_tok, payload.channel_id, payload.message_id,
+            f"❌ discarded `{doc_id}`" if ok else f"⚠ discard failed: {msg}")
+        return
+    # ✅ confirm. Protected tier must not be confirmable by a tap. This is a
+    # NON-resolution notice (the card stays live), so it stays a reply — don't
+    # collapse the still-actionable hint into it.
+    if card.get("tier") == "protected":
+        await _vc_react(bot_tok, payload.channel_id, payload.message_id,
+                        f"🔒 `{doc_id}` is protected — run `/proposal confirm "
+                        f"{doc_id}` to write it (a tap isn't enough).")
+        return
+    ok, msg = vecgrep_confirm.confirm(pid)
+    if ok:
+        vecgrep_confirm.forget_card(payload.message_id)
+    await _settle_card_inline(
+        bot_tok, payload.channel_id, payload.message_id,
+        f"✅ confirmed `{doc_id}` → written" if ok else f"⚠ confirm failed: {msg}")
+
+
+async def _handle_memory_veto(payload, rec, emoji, bot_tok) -> None:
+    import asyncio
+    import time
+
+    ch, mid = str(payload.channel_id), str(payload.message_id)
+
+    async def _clear_all() -> None:
+        # On a terminal decision, strip BOTH options (✅/❌) in ONE call so neither
+        # lingers as tappable. One remove_all_reactions avoids the rate-limit that
+        # the old per-emoji loop hit. Best-effort, off the loop.
+        try:
+            await asyncio.to_thread(vecgrep_confirm.remove_all_reactions,
+                                    bot_tok, ch, mid)
+        except Exception:
+            pass
+
+    async def _settle(outcome: str) -> None:
+        # Inline-collapse the card's prompt into the outcome (shared helper).
+        await _settle_card_inline(bot_tok, ch, mid, outcome)
+
+    # ✅ approve-now: lock it in early, stop tracking. The change is already live.
+    if emoji == memory_veto.KEEP_EMOJI:
+        memory_veto.forget(payload.message_id)
+        await _clear_all()
+        await _settle("✅  approved")
+        relay_ledger.log_event("veto_approve", chat_id=ch, message_id=mid,
+                               actor=payload.user_id, entry_id=rec.get("entry_id"),
+                               detail=rec.get("kind", ""))
+        return
+
+    # ❌ reject.
+    now = time.time()
+    if not memory_veto.within_window(rec, now):
+        # Window closed — the change is locked in. No-op (don't let a stale ❌
+        # nuke a relied-upon memory days later).
+        await _clear_all()
+        await _settle("🔒  veto window closed — approved")
+        memory_veto.forget(payload.message_id)
+        relay_ledger.log_event("veto_approve", chat_id=ch, message_id=mid,
+                               actor=payload.user_id, entry_id=rec.get("entry_id"),
+                               detail="window-closed")
+        return
+    ok, msg = memory_veto.revoke(rec)
+    memory_veto.forget(payload.message_id)
+    await _clear_all()
+    # ❌ = "reject" for a save, "undo" for an edit/delete — the revoke msg already
+    # says which (rejected / reverted / restored); collapse it onto the card.
+    await _settle(f"❌  {msg}" if ok else f"⚠  {msg}")
+    relay_ledger.log_event("veto_reject", chat_id=ch, message_id=mid,
+                           actor=payload.user_id, entry_id=rec.get("entry_id"),
+                           detail=msg, ok=ok)
+
+
+async def _handle_todo(payload, rec, action, bot_tok) -> None:
+    """✅ keep / 🚫 cancel RESOLVE the to-do (status set, all reactions cleared,
+    confirmation inline-collapsed). ⭐ TOGGLES the flag: flagging keeps it active
+    so ✅/🚫 taps are stripped; un-flagging restores them."""
+    import asyncio
+
+    ch, mid = str(payload.channel_id), str(payload.message_id)
+    tid = int(rec.get("todo_id"))
+
+    async def _reseed(emojis) -> None:
+        # Re-add reactions with a gap so Discord's rate-limit doesn't drop later
+        # ones (the seed pacing todo_card.attach uses).
+        for e in emojis:
+            try:
+                await asyncio.to_thread(vecgrep_confirm._add_reaction, bot_tok,
+                                        ch, mid, e)
+            except Exception:
+                pass
+            await asyncio.sleep(0.34)
+
+    # ⭐ flag — a toggle, NOT a resolution. Flagging => "kept", so we strip the
+    # ✅/🚫 resolution taps and leave only ⭐ (a flagged to-do isn't being
+    # done/cancelled). Un-flagging restores all three. We clear in ONE
+    # remove_all_reactions call (rate-limit-safe) then re-seed, which also drops
+    # the owner's tap so the next ⭐ fires a fresh toggle.
+    if action == "flag":
+        cur = next((t for t in store.load_todos() if t.get("id") == tid), None)
+        new_flag = not bool((cur or {}).get("flag"))
+        await asyncio.to_thread(store.set_todo_flag, tid, new_flag,
+                                editor="discord-tap")
+        try:
+            await asyncio.to_thread(vecgrep_confirm.remove_all_reactions,
+                                    bot_tok, ch, mid)
+        except Exception:
+            pass
+        await asyncio.sleep(0.3)
+        if new_flag:
+            await _reseed((todo_card.FLAG_EMOJI,))  # only ⭐ remains — it's kept
+            await _vc_react(bot_tok, payload.channel_id, payload.message_id,
+                            f"⭐  to-do #{tid} flagged — kept (keep/cancel cleared)")
+        else:
+            await _reseed(todo_card.ACTION_EMOJI)   # ✅ ⭐ 🚫 back
+            await _vc_react(bot_tok, payload.channel_id, payload.message_id,
+                            f"to-do #{tid} unflagged")
+        relay_ledger.log_event("todo_flag", chat_id=ch, message_id=mid,
+                               actor=payload.user_id, entry_id=tid,
+                               detail="flagged" if new_flag else "unflagged")
+        return
+
+    # ✅ keep / 🚫 cancel — both stop tracking the card + clear its taps, but
+    # KEEP leaves the todo ACTIVE (acknowledge only, no status change) while
+    # CANCEL resolves it to cancelled.
+    todo_card.forget(payload.message_id)
+    try:
+        await asyncio.to_thread(vecgrep_confirm.remove_all_reactions,
+                                bot_tok, ch, mid)
+    except Exception:
+        pass
+    if action == "keep":
+        await _settle_card_inline(bot_tok, ch, mid, f"✅  kept — to-do #{tid}")
+        relay_ledger.log_event("todo_keep", chat_id=ch, message_id=mid,
+                               actor=payload.user_id, entry_id=tid, ok=True)
+        return
+    # 🚫 cancel — resolve to cancelled.
+    ok = await asyncio.to_thread(store.set_todo_status, tid, "cancelled",
+                                 editor="discord-tap")
+    if ok:
+        await _settle_card_inline(bot_tok, ch, mid, f"🚫  cancelled — to-do #{tid}")
+    else:
+        await _settle_card_inline(bot_tok, ch, mid,
+                                  f"⚠  couldn't update to-do #{tid}")
+    relay_ledger.log_event("todo_cancelled", chat_id=ch, message_id=mid,
+                           actor=payload.user_id, entry_id=tid, ok=ok)
+
+
+async def _handle_choice(payload, rec, idx, bot_tok) -> None:
+    # A choice answer is valid WHENEVER you give it — no window gate (a tap an
+    # hour later is still a real pick). The window only auto-prunes unanswered
+    # cards from the web surface; a tap on a still-tracked card always processes.
+    # If the card's already gone (pruned/answered), lookup returned None upstream.
+    chosen = choice_card.resolve(rec, idx)
+    if chosen is None:
+        return  # a number with no matching option — ignore
+    choice_card.forget(payload.message_id)
+    n = idx + 1
+    # The card is resolved — clear ALL its reactions in ONE call so no number
+    # lingers as tappable. The old per-emoji loop got rate-limited and left
+    # some numbers behind.
+    import asyncio
+    try:
+        await asyncio.to_thread(vecgrep_confirm.remove_all_reactions, bot_tok,
+                                str(payload.channel_id), str(payload.message_id))
+    except Exception:
+        pass
+    # 1) Visible confirmation so the owner sees the tap landed — collapsed INTO
+    #    the card (its hint/number row → "✅ chose N: …") rather than a separate
+    #    reply. No markdown in the outcome: it's inside a ``` block where
+    #    **bold** renders as literal asterisks.
+    await _settle_card_inline(bot_tok, payload.channel_id, payload.message_id,
+                              f"✅ chose {n}: {chosen}")
+    # 2) Deliver the pick to the ASKING AGENT's session via the signed relay.
+    #    A plain bot message dead-ends (the plugin drops bot messages); the
+    #    relay carries an HMAC marker the patched plugin verifies + delivers as a
+    #    real prompt, so the agent that asked actually continues with the choice.
+    payload_text = f"You chose option {n}: {chosen}"
+    ok, err = choice_card.deliver_pick(str(payload.channel_id), payload_text, token=bot_tok)
+    if not ok:
+        log.warning("choice relay deliver failed: %s", err)
+    relay_ledger.log_event("choice_pick", chat_id=str(payload.channel_id),
+                           message_id=str(payload.message_id),
+                           actor=payload.user_id, detail=f"{n}: {chosen}", ok=ok)
+
+
+async def _handle_choice_cancel(payload, rec, bot_tok) -> None:
+    """❌ back out: COLLAPSE the outcome into the card in place (no separate
+    reply), clear its reactions, and relay a CANCEL to the asking session so it
+    resumes instead of waiting forever on a tap."""
+    import asyncio
+    choice_card.forget(payload.message_id)
+    try:
+        await asyncio.to_thread(vecgrep_confirm.remove_all_reactions, bot_tok,
+                                str(payload.channel_id), str(payload.message_id))
+    except Exception:
+        pass
+    # Mutate the card's hint row → outcome, in place (reply fallback only if
+    # the edit can't land).
+    await _settle_card_inline(
+        bot_tok, payload.channel_id, payload.message_id,
+        "↩️ backed out — no choice made.")
+    # Tell the asking agent the user declined, so a session awaiting the tap
+    # continues (and can handle the cancellation) rather than hanging.
+    ok, err = choice_card.deliver_pick(
+        str(payload.channel_id), "(backed out — no choice made)", token=bot_tok)
+    if not ok:
+        log.warning("choice cancel relay failed: %s", err)
+    relay_ledger.log_event("choice_cancel", chat_id=str(payload.channel_id),
+                           message_id=str(payload.message_id),
+                           actor=payload.user_id, ok=ok)
+
+
+async def _handle_choice_type(payload, rec, bot_tok) -> None:
+    """✏️ type something: the owner wants to free-text instead of picking. Settle
+    the card (forget it to stop sticky-bump + clear reactions) then COLLAPSE the
+    outcome into the card in place and relay a hint so the asking session waits
+    for the typed answer."""
+    import asyncio
+    choice_card.forget(payload.message_id)
+    try:
+        await asyncio.to_thread(vecgrep_confirm.remove_all_reactions, bot_tok,
+                                str(payload.channel_id), str(payload.message_id))
+    except Exception:
+        pass
+    # Mutate the card's hint row → outcome, in place.
+    await _settle_card_inline(
+        bot_tok, payload.channel_id, payload.message_id,
+        "✏️ go ahead — reply with your own answer.")
+    ok, err = choice_card.deliver_pick(
+        str(payload.channel_id),
+        "(the user wants to type their own answer instead of picking — wait for "
+        "their next message)", token=bot_tok)
+    if not ok:
+        log.warning("choice type-relay failed: %s", err)
+    relay_ledger.log_event("choice_type", chat_id=str(payload.channel_id),
+                           message_id=str(payload.message_id),
+                           actor=payload.user_id, ok=ok)
+
+
+def _fetch_message(token, channel_id, message_id) -> dict | None:
+    import json
+    import urllib.request
+    url = f"https://discord.com/api/v10/channels/{channel_id}/messages/{message_id}"
+    req = urllib.request.Request(
+        url, headers={"Authorization": f"Bot {token}", "User-Agent": "retry-check"})
+    try:
+        with urllib.request.urlopen(req, timeout=4) as r:
+            return json.loads(r.read())
+    except Exception:
+        return None
+
+
+async def _handle_retry(payload, bot_tok) -> None:
+    # Gate: only retry on a BOT-authored stop-ack (the "🛑 Stopped" reply the
+    # model 🔁'd after a lone-❌ interrupt). Avoids a random 🔁 tap triggering a
+    # re-run. Verify by fetching the message.
+    msg = _fetch_message(bot_tok, payload.channel_id, payload.message_id)
+    if not msg or not (msg.get("author") or {}).get("bot"):
+        return
+    content = msg.get("content") or ""
+    if "🛑" not in content and "stopped" not in content.lower():
+        return  # not a stop-ack — ignore
+    # Relay the retry instruction into the asking session so it re-runs the
+    # task it was stopped on. The model has the interrupted turn in its context,
+    # so "retry that" is unambiguous.
+    instruction = ("🔁 Retry: re-run the task you just stopped (the lone-❌ "
+                   "interrupt) from the same prompt — start over and complete it.")
+    ok, err = choice_card.deliver_pick(str(payload.channel_id), instruction, token=bot_tok)
+    if not ok:
+        log.warning("retry relay deliver failed: %s", err)
+
+
+# Header signatures of our sticky cards. A card's OWN repost lands as a new
+# message, which would re-trigger on_message — so we detect a card by its
+# header and DON'T treat it as displacement. This is the race-free loop-breaker
+# that lets us bump on bot messages (the old code dodged the loop by ignoring
+# ALL bot messages, which is exactly why the agent's own replies/narration
+# buried the card without ever re-bumping it).
+#
+# Markers match the kit's actual card headers from discord_card.py /
+# choice_card.py. "**Memory #" / "**Journal #" cover all three states (saved,
+# edited, deleted). "Input required" matches the choice card's "🗳️ **Input
+# required" header. "**To-do" covers todo_added + todo_status cards.
+_CARD_HEADER_MARKERS = ("**Memory #", "**Journal #", "Input required", "**To-do")
+
+
+def _looks_like_sticky_card(content: str | None) -> bool:
+    """True if `content` is one of our sticky cards (so a bump repost / the
+    initial card post never counts as channel displacement). Checks only the
+    header region so an ordinary reply that merely mentions 'Memory #5' deep in
+    its body isn't misread as a card."""
+    if not content:
+        return False
+    head = content.lstrip()[:80]
+    return any(marker in head for marker in _CARD_HEADER_MARKERS)
+
+
+# Serialize all bumps in this process: two messages landing back-to-back would
+# otherwise spawn concurrent bumps that both read the same pre-bump state and
+# double-post the card. The lock is cheap — bumps are cooldown-gated and quick.
+_bump_lock = None
+
+
+@client.event
+async def on_message(message) -> None:
+    # Sticky cards: when a new message lands in a channel with an in-window veto
+    # OR choice card, bump that card to the channel bottom so it stays visible
+    # until the owner approves/rejects it. We bump on BOT messages too — the
+    # agent's own replies + narration are the displacement that actually buries
+    # the card — and skip only the card's own reposts (via _looks_like_sticky_card)
+    # to avoid an infinite bump loop. Blocking HTTP runs in a thread.
+    import asyncio
+    import time
+    global _bump_lock
+    if _looks_like_sticky_card(getattr(message, "content", "")):
+        return  # our own card (initial post or a repost) — not displacement
+    chan = str(message.channel.id)
+    now = time.time()
+    tok = _post_token()  # bump as the handler, reachable in every managed channel
+    if _bump_lock is None:
+        _bump_lock = asyncio.Lock()
+    try:
+        async with _bump_lock:
+            await asyncio.to_thread(memory_veto.bump_pending_cards, chan, now, tok)
+            await asyncio.to_thread(choice_card.bump_pending_cards, chan, now, tok)
+    except Exception as e:
+        log.warning("card bump failed: %s", e)
+
+
+# ─────────────────── /proposal command group (vecgrep write proposals) ──────
+#
+# Protected-tier proposals need a stronger gesture than a tap. Reading a typed
+# reply would need the privileged message_content intent (a portal toggle +
+# whole-bot scope) — too heavy. A slash command re-states the doc id just as
+# deliberately and arrives via an interaction (no privileged intent). It also
+# doubles as the all-devices fallback for any confirm/pending review.
+vecgrep_group = app_commands.Group(
+    name="proposal",
+    description="vecgrep write proposals (pending/confirm/discard)",
+)
+
+
+def _vc_owner_only(interaction: discord.Interaction) -> bool:
+    """Gate: only the configured owner may act on proposals. Resolves via
+    vecgrep_confirm.is_owner() → CCDK_OWNER_DISCORD_USER_ID env /
+    ~/.config/cc-discord-kit/owner_id file, fail-closed. No hardcoded id."""
+    return vecgrep_confirm.is_owner(interaction.user.id)
+
+
+@vecgrep_group.command(name="pending", description="list pending write proposals")
+async def vecgrep_pending(interaction: discord.Interaction) -> None:
+    if not _vc_owner_only(interaction):
+        await interaction.response.send_message("Not authorized.", ephemeral=True)
+        return
+    items = vecgrep_confirm.list_pending()
+    if not items:
+        await interaction.response.send_message("No pending proposals.", ephemeral=True)
+        return
+    lines = []
+    for p in items:
+        kind = "edit" if p["is_edit"] else "new"
+        lock = " 🔒" if p["tier"] == "protected" else ""
+        lines.append(f"{p['doc_id']} [{kind}]{lock} ({p['corpus']})  {p['proposal_id']}")
+    await interaction.response.send_message(
+        "```\n" + "\n".join(lines) + "\n```", ephemeral=True)
+
+
+@vecgrep_group.command(name="confirm", description="confirm a pending proposal by doc id")
+@app_commands.describe(doc_id="the doc id to confirm, e.g. notes-007")
+async def vecgrep_confirm_cmd(interaction: discord.Interaction, doc_id: str) -> None:
+    if not _vc_owner_only(interaction):
+        await interaction.response.send_message("Not authorized.", ephemeral=True)
+        return
+    doc_id = doc_id.strip().strip("`")
+    match = next((p for p in vecgrep_confirm.list_pending()
+                  if p["doc_id"] == doc_id), None)
+    if not match:
+        await interaction.response.send_message(
+            f"No pending proposal for `{doc_id}`.", ephemeral=True)
+        return
+    # Re-state the doc id as the protected-tier ack (harmless for normal tier).
+    ok, msg = vecgrep_confirm.confirm(match["proposal_id"], ack=doc_id)
+    await interaction.response.send_message(
+        f"✅ confirmed `{doc_id}` → written" if ok else f"⚠ confirm failed: {msg}",
+        ephemeral=True)
+
+
+@vecgrep_group.command(name="discard", description="discard a pending proposal by doc id")
+@app_commands.describe(doc_id="the doc id to discard, e.g. notes-007")
+async def vecgrep_discard_cmd(interaction: discord.Interaction, doc_id: str) -> None:
+    if not _vc_owner_only(interaction):
+        await interaction.response.send_message("Not authorized.", ephemeral=True)
+        return
+    doc_id = doc_id.strip().strip("`")
+    match = next((p for p in vecgrep_confirm.list_pending()
+                  if p["doc_id"] == doc_id), None)
+    if not match:
+        await interaction.response.send_message(
+            f"No pending proposal for `{doc_id}`.", ephemeral=True)
+        return
+    ok, msg = vecgrep_confirm.discard(match["proposal_id"])
+    await interaction.response.send_message(
+        f"❌ discarded `{doc_id}`" if ok else f"⚠ discard failed: {msg}",
+        ephemeral=True)
+
+
+# Registered here, after the group + its commands are fully defined (the other
+# groups register up top because they're defined up top; this one lives down
+# here next to the reaction handler it pairs with).
+client.tree.add_command(vecgrep_group)
 
 
 @client.event
