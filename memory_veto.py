@@ -61,7 +61,14 @@ VETO_MAP_PATH = Path(
 SAVE_KINDS = {"memory_saved", "journal_added"}
 EDIT_KINDS = {"memory_edited", "journal_edited"}
 DELETE_KINDS = {"memory_deleted", "journal_deleted"}
-VETOABLE_KINDS = SAVE_KINDS | EDIT_KINDS | DELETE_KINDS
+# Deep-tier (.md reference FILE) kinds. File-backed, not store rows: the
+# "entry_id" is the filename and the before-snapshot is the file content, so
+# the undo rewrites the file. Saves aren't vetoed (a new deep file is low-risk);
+# edits/deletes are — those can clobber long-form reference content.
+DEEP_EDIT_KINDS = {"deep_edited"}
+DEEP_DELETE_KINDS = {"deep_deleted"}
+DEEP_KINDS = DEEP_EDIT_KINDS | DEEP_DELETE_KINDS
+VETOABLE_KINDS = SAVE_KINDS | EDIT_KINDS | DELETE_KINDS | DEEP_KINDS
 
 
 def _history_kind(action_kind: str) -> str:
@@ -80,6 +87,9 @@ def _veto_target(action: dict) -> tuple[int | None, dict | None]:
 	if kind in DELETE_KINDS:
 		before = action.get("before") or {}
 		return (before.get("id"), before)
+	if kind in DEEP_KINDS:
+		# fname is the key; before carries {fname, content, title, category}.
+		return (action.get("fname"), action.get("before"))
 	return (None, None)
 
 
@@ -448,6 +458,8 @@ def _entry_preview(kind: str | None, entry_id) -> str:
 	rejected, not just an id. Best-effort; '' if the entry's already gone."""
 	try:
 		import store
+		if kind in DEEP_KINDS:
+			return f"deep: {entry_id}"
 		if kind == "memory_saved":
 			e = next((x for x in store.load_memories() if x.get("id") == entry_id), None)
 		elif kind == "journal_added":
@@ -510,6 +522,14 @@ def revoke(record: dict) -> tuple[bool, str]:
 			res = history.restore_deleted({"kind": _history_kind(kind), "deleted": True,
 										   "before": record.get("before") or {}})
 			return (bool(res), f"{label} #{eid} restored" if res else f"{label} #{eid} restore failed")
+		if kind in DEEP_KINDS:
+			# File-backed undo: rewrite the deep .md from its before-snapshot.
+			# eid is the filename; _deep_restore (in server) owns path safety,
+			# the file write, index-line restore, and git-commit.
+			import server
+			before = record.get("before") or {}
+			ok, msg = server._deep_restore(str(eid), before, deleted=(kind in DEEP_DELETE_KINDS))
+			return (ok, msg)
 	except Exception as e:
 		return (False, f"{type(e).__name__}: {e}")
 	return (False, f"unknown kind {kind}")

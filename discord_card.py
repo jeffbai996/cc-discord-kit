@@ -291,6 +291,30 @@ def _format_card_inner(action: dict) -> str | None:
         if not before:
             return None
         return f"🗑️ **Journal #{before.get('id','?')} deleted**"
+    if kind == "deep_edited":
+        # Deep-tier .md FILE edit. Keyed by filename; before/after are file
+        # CONTENT, shown as a body diff so a clobber is visible.
+        before = action.get("before") or {}
+        after = action.get("after") or {}
+        fname = action.get("fname") or before.get("fname") or "?"
+        title = (after.get("title") or before.get("title") or "").strip()
+        meta = [("file", fname)]
+        if title:
+            meta.append(("title", title))
+        diff = _diff_body(before.get("content", ""), after.get("content", ""))
+        fallback = _truncate_body(after.get("content", "")) or None
+        return f"✏️ **Deep `{fname}` edited**\n" + _render_diff_block(meta, diff, fallback)
+    if kind == "deep_deleted":
+        before = action.get("before") or {}
+        fname = action.get("fname") or before.get("fname") or "?"
+        if not before:
+            return None
+        title = (before.get("title") or "").strip()
+        meta = [("file", fname)]
+        if title:
+            meta.append(("title", title))
+        body = _truncate_body(before.get("content", "")) or None
+        return f"🗑️ **Deep `{fname}` deleted**\n" + _render_card_block(meta, body)
     if kind == "todo_added":
         # Todos are id-less by design — the card shows the checklist item, not
         # a #number. owner/due ride as meta, mirroring the memory-card shape.

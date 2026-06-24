@@ -831,6 +831,8 @@ def deep_edit(fname):
     if not fpath or not os.path.exists(fpath):
         abort(404)
     if request.method == "POST":
+        # Snapshot the BEFORE state for the veto undo.
+        before = _deep_snapshot(fname, fpath)
         with open(fpath, "w", encoding="utf-8") as f:
             f.write(request.form.get("body", ""))
         # Optional index-metadata update (title / desc / recategorize).
@@ -841,6 +843,12 @@ def deep_edit(fname):
             _deep_remove_index_line(fname)
             _deep_add_index_line(category, title, fname, desc)
         _deep_git_commit(f"deep: edit {fname}")
+        # Veto card: ❌ reverts the file to `before` — the same one-tap safety
+        # net JSON memory edits get.
+        _post_card({
+            "kind": "deep_edited", "fname": fname,
+            "before": before, "after": _deep_snapshot(fname, fpath),
+        })
         return redirect(url_for("deep_file", fname=fname))
     meta = {"title": fname, "desc": "", "category": ""}
     cats = _parse_deep_index()
@@ -858,10 +866,56 @@ def deep_delete(fname):
     fpath = _deep_safe_path(fname)
     if not fpath or not os.path.exists(fpath):
         abort(404)
+    before = _deep_snapshot(fname, fpath)
     os.remove(fpath)
     _deep_remove_index_line(fname)
     _deep_git_commit(f"deep: delete {fname}")
+    # Veto card: ❌ restores the deleted file + its index line.
+    _post_card({"kind": "deep_deleted", "fname": fname, "before": before})
     return redirect(url_for("deep_index"))
+
+
+def _deep_snapshot(fname: str, fpath: str) -> dict:
+    """Capture a deep file's content + index metadata for a veto undo.
+
+    Returns {fname, content, title, category, desc}. content is "" if unreadable
+    (a delete-undo still recreates the file, better than nothing)."""
+    try:
+        content = open(fpath, encoding="utf-8").read()
+    except OSError:
+        content = ""
+    title = category = desc = ""
+    for c in _parse_deep_index():
+        for e in c["entries"]:
+            if e["file"] == fname:
+                title, category, desc = e["title"], c["title"], e.get("desc", "")
+    return {"fname": fname, "content": content, "title": title,
+            "category": category, "desc": desc}
+
+
+def _deep_restore(fname: str, before: dict, deleted: bool) -> tuple[bool, str]:
+    """Undo a deep edit/delete from a before-snapshot (called by memory_veto).
+
+    edit-undo → overwrite the file with the before-content; delete-undo →
+    recreate the file + its index line. Both re-commit the revert. Path-safe via
+    _deep_safe_path; never raises."""
+    try:
+        fpath = _deep_safe_path(fname)
+        if not fpath:
+            return (False, f"deep `{fname}`: unsafe path")
+        content = (before or {}).get("content", "")
+        with open(fpath, "w", encoding="utf-8") as f:
+            f.write(content)
+        title = (before or {}).get("title", "")
+        category = (before or {}).get("category", "")
+        if title and category:
+            _deep_remove_index_line(fname)
+            _deep_add_index_line(category, title, fname, (before or {}).get("desc", ""))
+        verb = "delete" if deleted else "edit"
+        _deep_git_commit(f"deep: undo {verb} {fname}")
+        return (True, f"deep `{fname}` {verb} undone")
+    except Exception as e:
+        return (False, f"deep `{fname}` undo failed: {type(e).__name__}: {e}")
 
 
 def _deep_health() -> dict:
