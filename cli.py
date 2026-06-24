@@ -1252,6 +1252,24 @@ def build_parser() -> argparse.ArgumentParser:
     bsub.add_parser("list",
                     help="list all agents in agents.yaml with kind + host")
 
+    # choice — deferred multiple-choice card. A stuck agent asks the owner to
+    # pick from 2-9 options via number reactions; the tap relays the pick back.
+    choicep = top.add_parser(
+        "choice", help="ask the owner to pick from options via a number-tap card")
+    chsub = choicep.add_subparsers(dest="sub", required=True)
+    c_ask = chsub.add_parser("ask", help="post a numbered choice card")
+    c_ask.add_argument("question", help="the question to ask")
+    c_ask.add_argument("options", nargs="+", help="2-9 options to choose from")
+    _add_discord_flags(c_ask)
+
+    # share / unshare — memory visibility whitelist (for restricted bots).
+    sharep = top.add_parser("share", help="add a bot to a memory's share whitelist")
+    sharep.add_argument("id", type=int, help="memory id")
+    sharep.add_argument("bot", help="bot name to share with")
+    unsharep = top.add_parser("unshare", help="remove a bot from a memory's share whitelist")
+    unsharep.add_argument("id", type=int, help="memory id")
+    unsharep.add_argument("bot", help="bot name to unshare from")
+
     return p
 
 
@@ -1272,6 +1290,47 @@ def _add_discord_flags(parser: argparse.ArgumentParser) -> None:
                         help="reply-to message ID for the card (requires --discord-chat-id)")
 
 
+def cmd_choice(args: argparse.Namespace) -> int:
+    """`cc-discord-kit choice ask "<question>" "opt1" "opt2" …` — post a deferred
+    multiple-choice card to Discord. A bot calls this when it's stuck; the owner
+    taps a number and the pick is relayed back. Non-blocking — returns as soon as
+    the card is up."""
+    if args.sub != "ask":
+        return 2
+    # Resolve the Discord target the same way card writes do: explicit flag →
+    # active transcript origin → calling agent's home channel.
+    chat_id = getattr(args, "discord_chat_id", None) or ""
+    if not chat_id:
+        auto = _resolve_discord_origin_from_transcript()
+        if auto is not None:
+            chat_id = auto[0]
+        elif os.environ.get("CLAUDECODE") == "1":
+            bot = _detect_calling_bot()
+            meta = personas.get_agent_meta(bot)
+            chat_id = str(meta.get("discord_home_channel") or "")
+    if not chat_id:
+        print("no Discord channel resolved (pass --discord-chat-id)", file=sys.stderr)
+        return 1
+    import time
+    import choice_card
+    ok, info = choice_card.ask(args.question, args.options, chat_id,
+                               asked_by=_detect_calling_bot() or "", now=time.time())
+    if not ok:
+        print(f"choice ask failed: {info}", file=sys.stderr)
+        return 1
+    print(f"asked (message {info}); awaiting a tap")
+    return 0
+
+
+def cmd_share(args: argparse.Namespace) -> int:
+    """Add/remove a bot from a memory's share whitelist (visibility control)."""
+    ok = (store.share_memory(args.id, args.bot) if args.cmd == "share"
+          else store.unshare_memory(args.id, args.bot))
+    verb = "shared with" if args.cmd == "share" else "unshared from"
+    print(f"#{args.id} {verb} {args.bot}" if ok else f"#{args.id} not found")
+    return 0 if ok else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -1289,6 +1348,10 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_recall(args)
     if args.cmd == "recall-stats":
         return cmd_recall_stats(args)
+    if args.cmd == "choice":
+        return cmd_choice(args)
+    if args.cmd in ("share", "unshare"):
+        return cmd_share(args)
     if args.cmd == "fact":
         return cmd_fact(args)
     if args.cmd in ("capabilities", "caps"):
