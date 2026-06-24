@@ -203,6 +203,13 @@ All env vars optional unless noted.
 | `CCDK_COMMANDS_DIR` | `hooks/discord_passthrough.py` | where to find `/cmd` registry scripts. Default `<repo>/commands/`. |
 | `CCDK_PASSTHROUGH_LOG` | `hooks/discord_passthrough.py` | log file path. Default `~/.local/state/cc-discord-kit/passthrough.log`. |
 | `CCDK_SESSION_STATE_FILE` | `hooks/discord_passthrough.py` | live-terminal session state (open pane's screen message + scrollback, per channel). Default `~/.cache/cc-discord-kit/passthrough_term.json`. |
+| `CCDK_RELAY_HELPER_ID` | `choice_card.py` | Discord user_id of the central helper bot that handles card taps. **Required for tap-to-act** — fail-closed if unset (no helper ⇒ relayed taps aren't trusted). |
+| `CCDK_HELPER_DISCORD_TOKEN` | `discord_card.py` | the helper bot's Discord token — cards are posted with it so the helper can edit them in place (cross-bot edits 403). Env or in `~/.config/cc-discord-kit/env`. |
+| `CCDK_ALLOWED_TAPPERS` | `vecgrep_confirm.py` | extra Discord user_ids (comma-separated) allowed to tap choice/veto/todo cards, beyond the owner. Vecgrep write-confirms stay owner-only. |
+| `CCDK_RELAY_CONFIG` / `CCDK_RELAY_SECRET` | `choice_card.py` | relay config + HMAC secret paths. Defaults `~/.config/cc-discord-kit/relay.json` + `relay_secret` (secret auto-generated on first use). |
+| `CCDK_VECGREP_CONFIRM_CHANNEL` | `vecgrep_confirm.py` | the only channel a vecgrep write-confirm tap is honored in (owner's private channel). Fail-closed if unset. |
+| `CCDK_PLUGIN_DIRS` | `hooks/discord_plugin_patch.py` | extra config dirs (comma-separated, relative to `$HOME`) whose plugin copy to patch, for multi-agent hosts. Default: `CLAUDE_CONFIG_DIR` + `~/.claude`. |
+| `CCDK_THINK_SHOW_SEC` | `hooks/narrate.py` | ceiling (seconds) before the thinking indicator shows on a silent turn whose first output hasn't flushed. Default 6. |
 
 The env file at `~/.config/cc-discord-kit/env` is checked as a fallback for any of the above. Shell-style:
 
@@ -557,11 +564,23 @@ If no Discord origin is in the user message (e.g. the save happened in a termina
 
 Cards aren't just read-only confirmations — the owner can **tap** them to drive the agent. Built + verified 2026-06-20.
 
-- **The trusted relay (load-bearing).** The Claude Code Discord plugin drops every bot-authored message, so a reaction the helper bot hears can't reach the asking agent's `--channels` session. A small HMAC-signed plugin patch (`discord_plugin_patch.py` Fix 4) opens the filter only for the helper's signed `⟦vc-relay:<hex>⟧` messages → delivered to the session as a normal prompt. **Without this, every tap dead-ends.** The helper signs via `choice_card.deliver_pick()`.
-- **Veto cards** — every save/edit/delete card carries ✅ keep / ❌. ❌ **rejects** a save (hard-delete + free the id), **undoes** an edit (revert to the before-snapshot), or **undoes** a delete (restore). 1h window; the card sticky-bumps to the channel bottom; pending items also show in the web `/pending` pane + nav badge. So bots can write liberally — a bad write is one tap from reversal. (`memory_veto.py`)
-- **Choice cards** — `squad-store choice ask "<q>" "<opt1>" "<opt2>" …` posts a numbered tap card; the owner taps a number and the pick is relayed back into the session. The channel-safe replacement for `AskUserQuestion` (which the `askuser_guard` PreToolUse hook hard-blocks in bot sessions, handing back the exact `choice ask` command).
-- **Interrupt + retry** — send a lone `❌` message to stop the bot's current turn (the patched plugin writes the stop flag the `cc-stop-check` hook reads); tap 🔁 on the "🛑 Stopped" reply to relay a retry.
-- **Plugin-mod durability** — `discord_plugin_patch.py` keeps every local plugin edit (presence, stickers, relay, `/effort` pass-through, lone-❌ stop-intercept) alive across plugin updates: idempotent anchor-based fixes re-applied each `SessionStart`, with a self-test that screams if a marker goes missing.
+- **The trusted relay (load-bearing).** The Claude Code Discord plugin drops every bot-authored message, so a reaction the helper bot hears can't reach the asking agent's `--channels` session. The HMAC-signed plugin patch (`hooks/discord_plugin_patch.py`) opens the filter only for the helper's signed `⟦vc-relay:<hex>⟧` messages → delivered to the session as a normal prompt. **Without this, every tap dead-ends.** The helper signs via `choice_card.deliver_pick()` against a shared secret (`~/.config/cc-discord-kit/relay_secret`, auto-generated). The helper bot id must be set in `CCDK_RELAY_HELPER_ID` — fail-closed if unset (no helper ⇒ no relayed taps are trusted).
+- **Inline-collapse (every card).** A tap **collapses its outcome into the card in place** — the prompt/hint row inside the code block is replaced with the result (e.g. `✅ approved`, `↩️ backed out`) — instead of posting a separate reply. Shared `_settle_card_inline` drives this across choice, veto, todo, and vecgrep cards. One card, one final state.
+- **Veto cards** — every save/edit/delete card carries ✅ keep / ❌. ❌ **rejects** a save (hard-delete + free the id), **undoes** an edit (revert to the before-snapshot), or **undoes** a delete (restore). 1h window; the card sticky-bumps to the channel bottom so it stays visible; the decision collapses inline. So bots can write liberally — a bad write is one tap from reversal. (`memory_veto.py`)
+- **Choice cards** — `cc-discord-kit choice ask "<q>" "<opt1>" "<opt2>" …` posts a numbered tap card; the owner taps a number and the pick is relayed back into the session. Two escape taps: ✏️ *type something* (free-text your own answer) and ❌ *back out*. The channel-safe replacement for `AskUserQuestion` (which the `askuser_guard` PreToolUse hook hard-blocks in bot sessions, handing back the exact `choice ask` command).
+- **Todo cards** — `cc-discord-kit todo add "<text>"` posts an actionable card: ✅ keep (acknowledge, stays active), 🚫 cancel (resolve), ⭐ flag (toggle starred). (`todo_card.py`)
+- **Who can tap.** Cards are owner-only by default (`CCDK_OWNER_DISCORD_USER_ID`). Add more tappers for choice/veto/todo cards via `CCDK_ALLOWED_TAPPERS` (comma-separated user IDs). The vecgrep write-confirm card stays owner-only regardless — it's gated by its own confirm-channel wall, so the allowlist never widens write-confirms.
+- **Interrupt + retry** — send a lone `❌` message to stop the bot's current turn (the patched plugin writes the stop flag the stop-check hook reads); tap 🔁 on the "🛑 Stopped" reply to relay a retry.
+- **Plugin-mod durability** — `hooks/discord_plugin_patch.py` keeps every local plugin edit (the relay, presence, etc.) alive across plugin updates: idempotent anchor-based fixes re-applied each `SessionStart`, with a self-test that screams (stderr + a sentinel JSON) if a marker goes missing. Targets the agent's `CLAUDE_CONFIG_DIR` + `~/.claude` plugin copy by default; multi-agent hosts can list extra dirs via `CCDK_PLUGIN_DIRS`.
+
+### Thinking indicator + tool surfacing
+
+Beyond the cards, the kit surfaces a running session live (`hooks/narrate.py`, `hooks/react_hook.py`, `hooks/tool_watcher.py`):
+
+- **Working react** — one emoji on the inbound message tracks the turn: 👀 received → 🔧/🌐/🤖 working → ✅ replied.
+- **Narration** — the agent's between-tool prose, surfaced as a `🧠 Narrating…` block (per-channel `narrate` mode: `off`/`collapse`/`always`).
+- **Tool trace** — tool calls as a one-line ticker up to full diffs (per-channel `tools` mode).
+- **Thinking indicator** — a standalone `🧠 ✻ Thinking…` message (animated, escalating) that settles to `🧠 ✓ Thought for Ns`. Shows whenever a turn does real work or reasoning (a thinking block **or** a real tool call) — decoupled from the extended-thinking toggle. The "Thought for Ns" is real think-only time (excludes tool execution). Anchored above the tool trace + reply via the first tool's PreToolUse. Spawned by `react_hook` when extended thinking is engaged; lives in `narrate.py`'s `run_think_updater`.
 
 ## Discord bot
 
