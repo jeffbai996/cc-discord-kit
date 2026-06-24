@@ -3,7 +3,7 @@
 
 This is NOT the LLM's extended-thinking trace — it's the plaintext
 assistant text blocks that appear between tool calls in the session
-transcript. Jeff sees them in the Claude Code terminal; the Discord
+transcript. the user sees them in the Claude Code terminal; the Discord
 sender doesn't, which makes the bot look silent during long tasks.
 
 This module is invoked in two phases of the hook lifecycle:
@@ -67,7 +67,7 @@ from typing import Any
 
 # Reuse the existing transcript / Discord-tag parsers.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from react_hook import (  # type: ignore[import-not-found]
+from react_hook import (# type: ignore[import-not-found]
     _bot_id,
     detect_discord_state_dir,
     read_bot_token,
@@ -173,8 +173,7 @@ try:
 except OSError:
     pass
 STATE_PATH = os.path.join(STATE_DIR, "narrate_state.json")
-LOG_PATH = os.environ.get(
-    "CCDK_NARRATE_LOG", os.path.join(STATE_DIR, "narrate.log")
+LOG_PATH = os.environ.get("CCDK_NARRATE_LOG", os.path.join(STATE_DIR, "narrate.log")
 )
 
 
@@ -202,8 +201,7 @@ def log(msg: str) -> None:
 # *ever*, then free. We also cache plain channels (parent = "") so a
 # non-thread is never re-queried.
 
-_THREAD_CACHE_PATH = os.path.expanduser(
-    "~/.local/state/cc-discord-kit/thread_parents.json")
+_THREAD_CACHE_PATH = os.path.expanduser("~/.local/state/cc-discord-kit/thread_parents.json")
 # Discord channel types that are threads: 10 announcement, 11 public, 12
 # private. Everything else is a normal channel with no parent to inherit.
 _THREAD_TYPES = (10, 11, 12)
@@ -246,8 +244,7 @@ def channel_parent_id(chat_id: str) -> str | None:
     token = read_bot_token(detect_discord_state_dir())
     if not token:
         return None  # can't resolve yet; don't poison the cache
-    info = _discord_request(
-        "GET", f"https://discord.com/api/v10/channels/{chat_id}", token)
+    info = _discord_request("GET", f"https://discord.com/api/v10/channels/{chat_id}", token)
     if info is None:
         return None  # transient failure — leave it uncached so we retry
     parent = ""
@@ -441,8 +438,7 @@ def _get_turn(state: dict[str, Any], key: str) -> dict[str, Any] | None:
     return val if isinstance(val, dict) else None
 
 
-def _last_origin_for_channel(
-    transcript_path: str, chat_id: str,
+def _last_origin_for_channel(transcript_path: str, chat_id: str,
 ) -> tuple[str, str] | None:
     """Most recent inbound (chat_id, message_id) for a SPECIFIC channel.
 
@@ -508,8 +504,7 @@ def _ts_for_message(transcript_path: str, message_id: str) -> str:
 # Discord HTTP — send / edit / delete a message
 # ---------------------------------------------------------------------------
 
-def _discord_request(
-    method: str, url: str, token: str, body: dict | None = None,
+def _discord_request(method: str, url: str, token: str, body: dict | None = None,
     _retry: bool = True,
 ) -> dict | None:
     data = None
@@ -612,8 +607,7 @@ def discord_latest_message_id(token: str, chat_id: str) -> str | None:
 # Transcript walker — pick up new assistant text since last_seen
 # ---------------------------------------------------------------------------
 
-def _byte_offset_after_current_user_turn(
-    transcript_path: str, turn_ts: str,
+def _byte_offset_after_current_user_turn(transcript_path: str, turn_ts: str,
 ) -> int:
     """Return the byte position just after the user-entry line matching turn_ts.
 
@@ -658,8 +652,7 @@ def _byte_offset_after_current_user_turn(
     return size
 
 
-def _new_text_blocks_since(
-    transcript_path: str, last_byte_offset: int,
+def _new_text_blocks_since(transcript_path: str, last_byte_offset: int,
     *, skip_uuids: list[str] | None = None,
 ) -> tuple[list[str], list[str], int]:
     """Read the transcript starting at last_byte_offset.
@@ -728,8 +721,7 @@ def _new_text_blocks_since(
     return new_texts, new_uuids, size
 
 
-def _scan_turn_text_blocks(
-    transcript_path: str, turn_ts: str, seen_uuids: list[str] | None,
+def _scan_turn_text_blocks(transcript_path: str, turn_ts: str, seen_uuids: list[str] | None,
 ) -> tuple[list[str], list[str]]:
     """Robust fallback: scan ALL assistant text blocks for the current turn.
 
@@ -837,8 +829,7 @@ def _clean_narrate_text(text: str) -> str:
 # Phase handlers
 # ---------------------------------------------------------------------------
 
-def _resolve_turn_target(
-    payload: dict, transcript_path: str, *, is_prereply: bool,
+def _resolve_turn_target(payload: dict, transcript_path: str, *, is_prereply: bool,
 ) -> tuple[str, str, str] | None:
     """Resolve (chat_id, message_id, turn_ts) for the turn this hook is acting on.
 
@@ -851,7 +842,7 @@ def _resolve_turn_target(
     "the conversation the bot is actually replying to," NOT "the newest message
     in the transcript" — because when two channels interleave, `_last_user_entry`
     flip-flops between them, and routing by it sends channel A's narration into
-    channel B (the live leak seen 2026-05-25: cl-2 work narrated into fam
+    channel B (the live leak seen 2026-05-25: channel A's work narrated into channel B
     mid-interleave).
 
     The ground truth for "which conversation" is the REPLY TARGET:
@@ -934,9 +925,8 @@ def handle_watch(payload: dict, *, is_prereply: bool = False) -> int:
     if not transcript_path:
         return 0
 
-    resolved = _resolve_turn_target(
-        payload, transcript_path, is_prereply=is_prereply,
-    )
+    resolved = _resolve_turn_target(payload, transcript_path, is_prereply=is_prereply,
+)
     if resolved is None:
         return 0
     chat_id, message_id, turn_ts = resolved
@@ -952,14 +942,12 @@ def handle_watch(payload: dict, *, is_prereply: bool = False) -> int:
     # a placeholder for the same turn. flock blocks the second invocation
     # until the first commits its placeholder_msg_id back to state.
     with _state_lock():
-        return _handle_watch_locked(
-            payload, transcript_path, chat_id, mode, turn_key, turn_ts,
+        return _handle_watch_locked(payload, transcript_path, chat_id, mode, turn_key, turn_ts,
             is_prereply=is_prereply,
-        )
+)
 
 
-def _suppress_post_reply_placeholder(
-    mode: str, has_live_placeholder: bool,
+def _suppress_post_reply_placeholder(mode: str, has_live_placeholder: bool,
     current_reply_count: int, replies_at_create: int,
 ) -> bool:
     """Whether to SKIP creating a narrate placeholder this tick.
@@ -979,15 +967,13 @@ def _suppress_post_reply_placeholder(
     This is the mechanism-level guard behind SQUAD.md's "reply LAST" rule:
     even if a bot emits prose after its reply, no useless block appears.
     """
-    return (
-        mode == "collapse"
+    return (mode == "collapse"
         and not has_live_placeholder
         and current_reply_count > replies_at_create
-    )
+)
 
 
-def _handle_watch_locked(
-    payload: dict, transcript_path: str, chat_id: str, mode: str,
+def _handle_watch_locked(payload: dict, transcript_path: str, chat_id: str, mode: str,
     turn_key: str, turn_ts: str, *, is_prereply: bool = False,
 ) -> int:
     """Body of handle_watch executed under _state_lock()."""
@@ -997,9 +983,8 @@ def _handle_watch_locked(
         # First firing for this turn — initialize offset at the byte
         # position just after the inbound user message. NEVER 0 — that
         # would replay the entire session history.
-        initial_offset = _byte_offset_after_current_user_turn(
-            transcript_path, turn_ts
-        )
+        initial_offset = _byte_offset_after_current_user_turn(transcript_path, turn_ts
+)
         turn = {
             "chat_id": chat_id,
             # Current segment's live placeholder. Reset to None each
@@ -1035,10 +1020,9 @@ def _handle_watch_locked(
     # the block was written, but the scan walked the whole turn and
     # found it anyway). Without uuid-level dedup the next watch's
     # byte-offset would re-read the same block and double the buffer.
-    new_texts, new_uuids, new_offset = _new_text_blocks_since(
-        transcript_path, turn.get("last_byte_offset", 0),
+    new_texts, new_uuids, new_offset = _new_text_blocks_since(transcript_path, turn.get("last_byte_offset", 0),
         skip_uuids=turn.get("seen_text_uuids", []),
-    )
+)
 
     # Option A: in prereply mode, ALSO scan back through every assistant
     # entry in the current turn and pick up any text blocks the byte-offset
@@ -1053,10 +1037,9 @@ def _handle_watch_locked(
     # reads file from turn boundary) but bounded by turn length and only
     # fires once per Discord reply.
     if is_prereply:
-        scan_texts, scan_seen = _scan_turn_text_blocks(
-            transcript_path, turn_ts,
+        scan_texts, scan_seen = _scan_turn_text_blocks(transcript_path, turn_ts,
             list(turn.get("seen_text_uuids", [])) + new_uuids,
-        )
+)
         if scan_texts:
             new_texts = new_texts + scan_texts
             log(f"prereply scan-back recovered {len(scan_texts)} text block(s) for turn {turn_key}")
@@ -1068,10 +1051,9 @@ def _handle_watch_locked(
     # stays positioned above its triggering reply) and reset state for
     # a brand-new segment below the reply.
     current_reply_count = count_discord_replies(transcript_path)
-    if (
-        turn.get("placeholder_msg_id")
+    if (turn.get("placeholder_msg_id")
         and current_reply_count > turn.get("replies_at_create", 0)
-    ):
+):
         _seal_segment(turn)
         log(f"rotated narrate segment for turn {turn_key} (reply count {current_reply_count})")
 
@@ -1082,10 +1064,9 @@ def _handle_watch_locked(
     # then exit. (Mechanism-level enforcement of SQUAD.md's "reply LAST" rule:
     # holds even when a bot emits prose after its reply.) always-mode is NOT
     # suppressed — it keeps below-reply placeholders as 🧠 Narration headers.
-    if _suppress_post_reply_placeholder(
-        mode, bool(turn.get("placeholder_msg_id")),
+    if _suppress_post_reply_placeholder(mode, bool(turn.get("placeholder_msg_id")),
         current_reply_count, turn.get("replies_at_create", 0),
-    ):
+):
         turn["last_byte_offset"] = new_offset
         if new_uuids:
             seen = turn.get("seen_text_uuids") or []
@@ -1133,7 +1114,7 @@ def _handle_watch_locked(
     # the PreToolUse-on-reply hook (`--mode prereply`), the placeholder
     # is now created BEFORE the reply lands, so the common case
     # ordering is correct. For the edge case (mid-turn rotation, model
-    # emits prose AFTER a reply), the placeholder posts below — Jeff's
+    # emits prose AFTER a reply), the placeholder posts below — the user's
     # explicit preference: "narration should never be cut off, always
     # above the output it was meant for, except when steered by a new
     # user message" — i.e. degraded-but-visible beats invisible.
@@ -1153,9 +1134,8 @@ def _handle_watch_locked(
     # Append new text to buffer with paragraph breaks between blocks
     incoming = "\n\n".join(new_texts) if new_texts else ""
     candidate_buffer = (turn["buffer"] + "\n\n" + incoming
-                        if turn["buffer"] and incoming else (
-                            turn["buffer"] or incoming
-                        ))
+                        if turn["buffer"] and incoming else (turn["buffer"] or incoming
+))
     candidate_content = NARRATE_PREFIX_AUTO + _blockquote(candidate_buffer or "…")
 
     # Length guard: if appending this batch would push the placeholder
@@ -1165,10 +1145,9 @@ def _handle_watch_locked(
     # before this batch), reset state, and start a fresh placeholder
     # with just the new text. Same mechanism as reply-triggered
     # rotation, just driven by length instead of a reply landing.
-    if (
-        turn.get("placeholder_msg_id")
+    if (turn.get("placeholder_msg_id")
         and len(candidate_content) > DISCORD_LIMIT
-    ):
+):
         _seal_segment(turn)
         log(f"rotated narrate segment for turn {turn_key} (length cap)")
         turn["buffer"] = incoming
@@ -1272,8 +1251,7 @@ def handle_finalize(payload: dict) -> int:
         return _handle_finalize_locked(payload, transcript_path)
 
 
-def _safety_net_settle_think(
-    turn_key: str, turn: dict, chat_id: str, token: str,
+def _safety_net_settle_think(turn_key: str, turn: dict, chat_id: str, token: str,
 ) -> None:
     """Settle an orphaned, still-live think indicator from the Stop hook.
 
@@ -1322,8 +1300,7 @@ def _safety_net_settle_think(
     # updater owns the readable collapse delay on its next tick — it sees
     # `finalized` and runs _finalize_think_summary — so the line gets the SAME
     # _THINK_COLLAPSE_SEC linger in every mode, including `never`, instead of
-    # vanishing the instant a reply-ended turn hits this safety net (Jeff
-    # 2026-06-23). `always` keeps the line indefinitely as before.
+    # vanishing the instant a reply-ended turn hits this safety net. `always` keeps the line indefinitely as before.
 
 
 def _finalize_one_turn(turn_key: str, turn: dict, token: str, state_dir: str,
@@ -1332,7 +1309,7 @@ def _finalize_one_turn(turn_key: str, turn: dict, token: str, state_dir: str,
 
     Mutates `turn` (sets finalized=True). Network calls use the passed
     token/state_dir so the caller resolves them once per Stop, not per turn.
-    transcript_path feeds the tool-trace-below-reply swap (Jeff 2026-06-24).
+    transcript_path feeds the tool-trace-below-reply swap.
     """
     chat_id = turn.get("chat_id")
 
@@ -1438,7 +1415,7 @@ def _finalize_one_turn(turn_key: str, turn: dict, token: str, state_dir: str,
             if discord_edit_message(token, chat_id, tm_id, final_content):
                 log(f"finalized tool message {tm_id} (turn {turn_key})")
 
-        # ── Tool-trace-below-reply SWAP (Jeff 2026-06-24, "crude but works").
+        # ── Tool-trace-below-reply SWAP (, "crude but works").
         #    If the live tool-trace message ended up BELOW the last reply — i.e.
         #    an echo-first turn (reply, THEN tool work, violating reply-LAST) —
         #    Discord can't reorder messages, but the bot owns both, so swap their
@@ -1448,10 +1425,9 @@ def _finalize_one_turn(turn_key: str, turn: dict, token: str, state_dir: str,
         #    trace is below. Fully best-effort: any failure leaves both as-is.
         if chat_id and transcript_path and turn.get("tool_msg_id"):
             try:
-                _swap_trace_below_reply(
-                    chat_id, str(turn["tool_msg_id"]), transcript_path,
+                _swap_trace_below_reply(chat_id, str(turn["tool_msg_id"]), transcript_path,
                     token, turn_key,
-                )
+)
             except Exception as e:
                 log(f"trace/reply swap failed (turn {turn_key}): {e}")
 
@@ -1616,13 +1592,12 @@ def _reply_messages_for_turn(transcript_path: str, chat_id: str) -> list[str]:
     return sent
 
 
-def _swap_trace_below_reply(
-    chat_id: str, trace_msg_id: str, transcript_path: str,
+def _swap_trace_below_reply(chat_id: str, trace_msg_id: str, transcript_path: str,
     token: str | None, turn_key: str,
 ) -> None:
     """If the tool-trace message is BELOW the reply, swap their text in place.
 
-    Crude-but-correct (Jeff 2026-06-24): Discord can't reorder messages, but the
+    Crude-but-correct: Discord can't reorder messages, but the
     bot owns both, so we swap CONTENT — the upper (reply) message becomes the
     trace, the lower (trace) message becomes the reply text — leaving the reply
     visually last. Only fires on a SINGLE-part reply (multi-part is skipped) when
@@ -1710,10 +1685,10 @@ _THINK_TIERS = [
 # refresh tick so the 🧠 message animates while the think runs.
 _THINK_GLYPHS = ["✻", "✢", "✱", "✶", "✷", "✸"]  # all text-presentation (no emoji variants)
 # {d} = the trailing dots, animated alongside the glyph so the ellipsis itself
-# pulses (Jeff 2026-06-21: ". .. …"). Cycles each refresh tick like the glyph.
+# pulses (". .. …"). Cycles each refresh tick like the glyph.
 _THINK_DOTS = [".", "..", "…"]
 _THINK_REFRESH_SEC = 1.5       # edit cadence: advance glyph + update tier
-_THINK_HARD_TIMEOUT_SEC = 43200  # absolute lifetime ceiling (12h) — a far backstop against a runaway turn. NOT the normal stand-down: an ACTIVE turn keeps its indicator the whole time, however long (the old 300s cap is why the trace vanished mid-long-task — Jeff 2026-06-22; raised 1h→12h same day so even a marathon session is never cut).
+_THINK_HARD_TIMEOUT_SEC = 43200  # absolute lifetime ceiling (12h) — a far backstop against a runaway turn. NOT the normal stand-down: an ACTIVE turn keeps its indicator the whole time, however long (the old 300s cap is why the trace vanished mid-long-task — ; raised 1h→12h same day so even a marathon session is never cut).
 _THINK_IDLE_TIMEOUT_SEC = 720   # stand down after this much SILENCE (no new act/output) → the turn likely ended without a terminal react. Resets on any activity, so a long-but-busy turn (many tool calls) never trips it; only a stalled/orphaned one does. Kept > the 600s max Bash runtime so a single long tool call can't false-trip it.
 _THINK_GAP_SEC = 1.0           # gap before posting (instant-turn guard window)
 # Dwell gate for the STANDALONE indicator. The runtime extended-thinking toggle
@@ -1723,13 +1698,13 @@ _THINK_GAP_SEC = 1.0           # gap before posting (instant-turn guard window)
 # resolve to output fast; only a GENUINE extended-think phase holds output back
 # for seconds. So we post the "🧠 Thinking…" indicator only once the turn has
 # stayed output-less this long — dwell time is the sole available proxy for
-# "thinking is actually on" (Jeff 2026-06-24). The prompt 🤔 react + narrate
+# "thinking is actually on". The prompt 🤔 react + narrate
 # placeholder still carry every turn; this gates ONLY the extra indicator.
 # Tunable via env so we can dial the cut without a redeploy.
 _THINK_SHOW_SEC = float(os.environ.get("CCDK_THINK_SHOW_SEC", "6"))
 _THINK_SHOW_POLL_SEC = 0.5     # how often the dwell gate checks for first output
-_THINK_COLLAPSE_SEC = 60       # collapse/never: keep "Thought for Ns" this long so the duration is readable, THEN delete (Jeff's call 2026-06-21 — readability over the brief linger; 6s was too short). always-mode keeps it indefinitely.
-_THINK_HOLDER_STALE_SEC = 30   # cross-turn liveness: a channel's indicator-holder blocks NEW turns from posting only while its updater is alive (heartbeats every _THINK_REFRESH_SEC). If the heartbeat goes this stale the updater died (crash / killed session / Stop never fired) and its orphaned "Thinking…" must NOT keep blacking out the channel. 30s ≈ 20 missed ticks — unambiguous death, no flap. (Jeff 2026-06-24: an orphan blocked cl-2 for the full 12h hard-timeout.)
+_THINK_COLLAPSE_SEC = 60       # collapse/never: keep "Thought for Ns" this long so the duration is readable, THEN delete (a deliberate call — readability over the brief linger; 6s was too short). always-mode keeps it indefinitely.
+_THINK_HOLDER_STALE_SEC = 30   # cross-turn liveness: a channel's indicator-holder blocks NEW turns from posting only while its updater is alive (heartbeats every _THINK_REFRESH_SEC). If the heartbeat goes this stale the updater died (crash / killed session / Stop never fired) and its orphaned "Thinking…" must NOT keep blacking out the channel. 30s ≈ 20 missed ticks — unambiguous death, no flap. (an orphan once blocked a channel for the full 12h hard-timeout.)
 
 # Final settled line shown once the think ends (first real output / timeout).
 # Duration from think-start to think-end, shown as "Ns" under a minute and
@@ -1742,7 +1717,7 @@ _THINK_SUMMARY_TEMPLATE = "🧠 ✓ **Thought for {dur}**"
 # side). Claude Code fires no hook on interrupt and stamps no terminal react, so
 # the detached updater detects the "[Request interrupted by user]" marker in the
 # transcript and settles to this instead of spinning "Thinking…" to the idle
-# timeout (Jeff 2026-06-23). ✗ mirrors the ✓ of a clean finish.
+# timeout. ✗ mirrors the ✓ of a clean finish.
 _INTERRUPTED_SUMMARY = "🧠 ✗ **Interrupted**"
 
 # Reacts that mean a later lifecycle state has taken over from 🤔 — when any
@@ -1762,7 +1737,7 @@ _THINK_SUPERSEDING_EMOJI = [
 #   - ✅ replied — a Discord reply can be INTERMEDIATE: the bot posts a message
 #     between two tasks in the same turn and keeps working. Treating ✅ as
 #     turn-end settled the updater on that first reply, so the next task's
-#     "Thinking…" never came back (Jeff 2026-06-23). The real turn-end for a
+#     "Thinking…" never came back. The real turn-end for a
 #     reply-ending turn is the Stop hook, which settles the indicator via the
 #     _safety_net_settle_think path in handle_finalize.
 # So terminal = only the genuine end-of-turn reacts: 🖥️ (terminal — Stop with no
@@ -1785,8 +1760,8 @@ _THINK_REACTIVATE_GAP_SEC = _THINK_REFRESH_SEC
 
 # Compaction guard. A mid-turn context compaction makes the transcript go quiet,
 # which the phase machine would misread as a THINK phase and falsely animate
-# "Thinking with {effort}" while the model is actually compacting (Jeff
-# 2026-06-23: 加班鸭 showed xhigh thinking during a compaction). The PreCompact
+# "Thinking with {effort}" while the model is actually compacting (a bot was
+# observed showing xhigh thinking during a compaction). The PreCompact
 # react hook writes a per-turn sentinel (keyed by inbound message_id so
 # concurrent bots sharing STATE_DIR don't collide); SessionStart(source=compact)
 # clears it. While it's present the updater shows a Compacting indicator instead
@@ -1836,7 +1811,7 @@ def _think_phrase(effort: str, elapsed: float, glyph: str, dots: str = "…") ->
 
 def _fmt_think_duration(elapsed: float) -> str:
     """'Ns' under a minute, 'Xm Ys' at/over 60s — actual seconds, floored at 1s.
-    No zero-pad on the seconds (Jeff 2026-06-21: '1m 0s', not '1m 00s')."""
+    No zero-pad on the seconds ('1m 0s', not '1m 00s')."""
     n = max(1, int(round(elapsed)))
     if n < 60:
         return f"{n}s"
@@ -1857,8 +1832,7 @@ def _think_summary(effort: str, elapsed: float, interrupted: bool = False) -> st
     return _THINK_SUMMARY_TEMPLATE.format(dur=_fmt_think_duration(elapsed))
 
 
-def _turn_moved_on(
-    transcript_path: str, turn_ts: str, start_byte: int,
+def _turn_moved_on(transcript_path: str, turn_ts: str, start_byte: int,
     chat_id: str, msg_id: str,
 ) -> bool:
     """Has the turn produced visible output since the think started?
@@ -2055,8 +2029,7 @@ def _think_standdown_reason(wall: float, idle: float) -> str | None:
     return None
 
 
-def _scan_new_act_entries(
-    transcript_path: str, start_byte: int,
+def _scan_new_act_entries(transcript_path: str, start_byte: int,
 ) -> tuple[bool, int, bool]:
     """Detect new ACT-phase entries (and any interrupt) appended past `start_byte`.
 
@@ -2166,7 +2139,7 @@ def _other_live_think_indicator(state: dict, turn_key: str, chat_id: str,
     indicator? We spawn one updater per inbound message (react_hook), so a burst
     of messages/taps arriving ~together spawns several updaters with DISTINCT
     turn_keys — the per-turn `think_owner` claim can't dedup across keys, so each
-    used to post its own "Thinking…" message (Jeff 2026-06-21: "you emitted 2").
+    used to post its own "Thinking…" message ("you emitted 2").
     At any instant a channel should show at most ONE indicator; if another turn
     already owns one (posted, or mid-post via the "__posting__" reservation),
     stand down. A recency bound (the hard-timeout lifetime) keeps a stale
@@ -2185,7 +2158,7 @@ def _other_live_think_indicator(state: dict, turn_key: str, chat_id: str,
         # heartbeat ⇒ the updater died (crash / killed session / Stop never
         # fired) and its orphaned "Thinking…" must not blackout the channel.
         # Reusing the 12h hard-timeout here is what let one orphan suppress ALL
-        # new thinking in cl-2 for 12h (Jeff 2026-06-24).
+        # new thinking in a channel for 12h.
         hb = t.get("think_heartbeat")
         if hb is not None:
             if (now - float(hb)) > _THINK_HOLDER_STALE_SEC:
@@ -2202,8 +2175,7 @@ def _other_live_think_indicator(state: dict, turn_key: str, chat_id: str,
     return False
 
 
-def _settle_think_message(
-    chat_id: str, turn_key: str, effort: str, total_think: float,
+def _settle_think_message(chat_id: str, turn_key: str, effort: str, total_think: float,
     token: str | None, *, reason: str, interrupted: bool = False,
 ) -> str | None:
     """Edit the standalone think message to the persistent
@@ -2257,7 +2229,7 @@ def _think_should_collapse(chat_id: str) -> bool:
     """Whether the settled "Thought for Ns" line should be DELETED after its
     readable linger, vs kept.
 
-    Rule (Jeff 2026-06-23): the line stays whenever there's persistent context to
+    Rule: the line stays whenever there's persistent context to
     sit alongside — a persisting tool-trace (ticker/diffs/full) OR persisting
     narration (always-mode). It collapses ONLY when both are ephemeral: the
     tool-trace is collapse/off AND narration is collapse/never/auto. Concretely:
@@ -2281,7 +2253,7 @@ def _collapse_think_message(chat_id: str, think_msg_id: str, token: str | None,
 
     Keeps the "Thought for {N}" line when a tool-trace persists (ticker/diffs/
     full) or narration is `always`; deletes it only when both collapse — see
-    _think_should_collapse (Jeff 2026-06-23). CALLERS own the timing — this does
+    _think_should_collapse. CALLERS own the timing — this does
     NOT sleep. The detached updater sleeps _THINK_COLLAPSE_SEC then calls this.
     """
     if not token or not think_msg_id:
@@ -2311,7 +2283,7 @@ def _clear_think_react(chat_id: str, msg_id: str, token: str | None) -> None:
     the 😮/🎉 IS the response and Stop suppresses 🖥️ — the bot reacts and Stop
     runs BEFORE this updater wins its start_byte capture, so _turn_moved_on
     sees nothing new and stamps 🤔 AFTER the cleanup already passed. Nothing
-    then removes it and it orphans until the 720s idle timeout (Jeff
+    then removes it and it orphans until the 720s idle timeout (
     2026-06-24: "Thinking emoji failed to clear"). Fix: whoever stamped the 🤔
     also removes it at settle. discord_unreact is idempotent + state-aware
     (no-op if not applied), so this is safe to call in every settle path,
@@ -2325,8 +2297,7 @@ def _clear_think_react(chat_id: str, msg_id: str, token: str | None) -> None:
         log(f"think react-clear failed chat={chat_id} msg={msg_id}: {e}")
 
 
-def _finalize_think_summary(
-    chat_id: str, turn_key: str, effort: str, total_think: float,
+def _finalize_think_summary(chat_id: str, turn_key: str, effort: str, total_think: float,
     token: str | None, *, reason: str, interrupted: bool = False,
 ) -> None:
     """Settle + (after a delay) collapse the standalone think message.
@@ -2337,10 +2308,9 @@ def _finalize_think_summary(
     _THINK_COLLAPSE_SEC and delete it. We're in the detached updater, so the
     sleep blocks nothing. Best-effort throughout; never raises.
     """
-    think_msg_id = _settle_think_message(
-        chat_id, turn_key, effort, total_think, token, reason=reason,
+    think_msg_id = _settle_think_message(chat_id, turn_key, effort, total_think, token, reason=reason,
         interrupted=interrupted,
-    )
+)
     # Always strip our own 🤔 from the inbound at settle — closes the
     # stamp-after-cleanup race (see _clear_think_react). Done regardless of
     # whether an indicator message existed (a sub-1s turn posts no indicator
@@ -2353,8 +2323,7 @@ def _finalize_think_summary(
         # the duration is readable, THEN delete it — but ONLY in the fully-
         # ephemeral channel (narrate collapse/never/auto AND tool-trace
         # collapse/off). A persisting tool-trace (diffs/ticker/full) or
-        # always-narration keeps the line alongside that context (Jeff
-        # 2026-06-23). 60s linger set 2026-06-21 for readability.
+        # always-narration keeps the line alongside that context. 60s linger set 2026-06-21 for readability.
         time.sleep(_THINK_COLLAPSE_SEC)
         _collapse_think_message(chat_id, think_msg_id, token, turn_key=turn_key)
 
@@ -2374,7 +2343,7 @@ def handle_think_prereply(payload: dict, effort: str = "",
     finished reasoning (so its `type:thinking` block is already in the
     transcript) but BEFORE the reply message ships. On a short think→reply turn
     the detached updater's post races the reply to Discord's API and loses,
-    landing the indicator BELOW the reply (Jeff 2026-06-24). The detached path
+    landing the indicator BELOW the reply. The detached path
     is correct on long turns (the block streams early) but inherently racy on
     short ones because it posts on its own clock.
 
@@ -2385,7 +2354,7 @@ def handle_think_prereply(payload: dict, effort: str = "",
     `already=True`), skips its own post, and falls straight into the animate/
     settle loop on the message we created.
 
-    Show-guard — matches the detached updater's show rule (Jeff 2026-06-24):
+    Show-guard — matches the detached updater's show rule:
     anchor when the turn has done real WORK or reasoning by anchor-time — a
     `type:thinking` block OR a real (non-Discord) tool_use. A bare reflexive
     reply (only text, no work) anchors nothing. This is what lets the anchor
@@ -2400,9 +2369,8 @@ def handle_think_prereply(payload: dict, effort: str = "",
         transcript_path = payload.get("transcript_path") or ""
         if not transcript_path:
             return 0
-        resolved = _resolve_turn_target(
-            payload, transcript_path, is_prereply=True,
-        )
+        resolved = _resolve_turn_target(payload, transcript_path, is_prereply=True,
+)
         if resolved is None:
             log("think prereply bail: resolve_turn_target=None")
             return 0
@@ -2515,8 +2483,7 @@ def handle_think_prereply(payload: dict, effort: str = "",
     return 0
 
 
-def run_think_updater(
-    chat_id: str, msg_id: str, effort: str, transcript_path: str,
+def run_think_updater(chat_id: str, msg_id: str, effort: str, transcript_path: str,
 ) -> None:
     """Detached Mode-A worker. Stamp 🤔 after a gap, then post + animate a
     STANDALONE thinking-indicator Discord message that persists.
@@ -2559,9 +2526,8 @@ def run_think_updater(
                     # Seed a minimal record now so the offset walker still
                     # bounds the turn correctly when watch first fires.
                     turn_ts = _ts_for_message(transcript_path, msg_id)
-                    initial_offset = _byte_offset_after_current_user_turn(
-                        transcript_path, turn_ts
-                    )
+                    initial_offset = _byte_offset_after_current_user_turn(transcript_path, turn_ts
+)
                     turn = {
                         "chat_id": chat_id,
                         "placeholder_msg_id": None,
@@ -2623,7 +2589,7 @@ def run_think_updater(
         # content react, or a fast reply) landed BEFORE we captured start_byte
         # (the detached spawn can lose that race), so without these extra
         # checks we'd stamp 🤔 AFTER react_hook already cleaned transients at
-        # Stop and orphan it (Jeff 2026-06-24). finalized / _turn_ended catch
+        # Stop and orphan it. finalized / _turn_ended catch
         # the ended-during-gap case; _turn_moved_on catches the still-running
         # one that produced output.
         ended = False
@@ -2655,7 +2621,7 @@ def run_think_updater(
         except Exception:
             pass
 
-        # ── 2a. The ONLY suppression: a `never`-narrate channel. Jeff 2026-06-24
+        # ── 2a. The ONLY suppression: a `never`-narrate channel. 
         #    — always show the indicator whenever the model actually thinks
         #    (accurate think time, regardless of the extended-thinking toggle),
         #    EXCEPT where narration is turned off entirely. (The 🤔 react above
@@ -2666,7 +2632,7 @@ def run_think_updater(
             _release_think_claim(turn_key)
             return
 
-        # ── 2b. Show-gate (Jeff 2026-06-24): the indicator shows unless the turn
+        # ── 2b. Show-gate: the indicator shows unless the turn
         #    emitted ZERO narration AND ZERO thinking blocks. "Narration" here =
         #    a working/agentic turn — the model fired a tool (the narrate trace
         #    follows tool work), so a tool_use is the narration signal. So we
@@ -2836,10 +2802,9 @@ def run_think_updater(
                         state[turn_key] = turn
                         _save_state(state)
                     if tmid:
-                        compacting = (
-                            f"📝 {_think_glyph(tick)} **Compacting context"
+                        compacting = (f"📝 {_think_glyph(tick)} **Compacting context"
                             f"{_think_dots(tick)}**"
-                        )
+)
                         if compacting != last_content:
                             discord_edit_message(token, chat_id, tmid, compacting)
                             last_content = compacting
@@ -2861,25 +2826,22 @@ def run_think_updater(
             if standdown:
                 log(f"think-updater {standdown} turn={turn_key} "
                     f"wall={wall:.0f}s idle={idle:.0f}s")
-                _finalize_think_summary(
-                    chat_id, turn_key, effort, _total_now(now), token,
+                _finalize_think_summary(chat_id, turn_key, effort, _total_now(now), token,
                     reason=standdown,
-                )
+)
                 return
             if _turn_ended(chat_id, msg_id):
                 log(f"think-updater turn-ended turn={turn_key} "
                     f"after {wall:.0f}s think_total={_total_now(now):.0f}s")
-                _finalize_think_summary(
-                    chat_id, turn_key, effort, _total_now(now), token,
+                _finalize_think_summary(chat_id, turn_key, effort, _total_now(now), token,
                     reason="turn-ended",
-                )
+)
                 return
 
             # ── Phase transition detection from the transcript.
             try:
-                has_new_act, new_eof, interrupted = _scan_new_act_entries(
-                    transcript_path, last_seen,
-                )
+                has_new_act, new_eof, interrupted = _scan_new_act_entries(transcript_path, last_seen,
+)
             except Exception as e:
                 log(f"think-updater scan error turn={turn_key}: {e}")
                 has_new_act, new_eof, interrupted = False, last_seen, False
@@ -2889,13 +2851,12 @@ def run_think_updater(
             #    hook and stamps no terminal react, so this transcript marker is
             #    the ONLY signal — settle the indicator to "✗ Interrupted" and
             #    stop, instead of animating "Thinking…" to the idle timeout
-            #    (Jeff 2026-06-23).
+            #.
             if interrupted:
                 log(f"think-updater interrupted turn={turn_key} after {wall:.0f}s")
-                _finalize_think_summary(
-                    chat_id, turn_key, effort, _total_now(now), token,
+                _finalize_think_summary(chat_id, turn_key, effort, _total_now(now), token,
                     reason="interrupted", interrupted=True,
-                )
+)
                 return
 
             if has_new_act:
@@ -2950,13 +2911,11 @@ def run_think_updater(
                     # settle (idempotent — already done) then sleep _THINK_COLLAPSE_SEC
                     # and collapse, exactly like a normal turn-end. This makes the
                     # "Thought for Ns" linger the same in EVERY mode (incl. never),
-                    # instead of the reply-ended turn vanishing instantly (Jeff
-                    # 2026-06-23). Done OUTSIDE the lock — the sleep blocks only us.
+                    # instead of the reply-ended turn vanishing instantly. Done OUTSIDE the lock — the sleep blocks only us.
                     log(f"think-updater finalized turn={turn_key} -> collapse delay")
-                    _finalize_think_summary(
-                        chat_id, turn_key, effort, _total_now(now), token,
+                    _finalize_think_summary(chat_id, turn_key, effort, _total_now(now), token,
                         reason="finalized",
-                    )
+)
                     _release_think_claim(turn_key)
                     return
                 if not tmid:
@@ -2970,7 +2929,7 @@ def run_think_updater(
             #    cycle. Previously the ACT phase repainted the message to
             #    "🧠 ✓ Thought for {total}" each time the model acted, so a
             #    multi-tool high-effort turn flashed "Thought for 5s", "10s",
-            #    "15s"… (the noise Jeff flagged). Now we keep the calm spinner
+            #    "15s"… (the noise the user flagged). Now we keep the calm spinner
             #    for the WHOLE turn (think AND act), tiered by cumulative think
             #    time; the single "Thought for Ns" lands only at the end.
             try:
@@ -2984,19 +2943,17 @@ def run_think_updater(
                 # keep looping; a transient edit failure shouldn't kill us
     except Exception:
         try:
-            log("think-updater crash:\n" + "".join(
-                __import__("traceback").format_exc()))
+            log("think-updater crash:\n" + "".join(__import__("traceback").format_exc()))
         except Exception:
             pass
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument(
-        "--mode",
+    ap.add_argument("--mode",
         choices=("watch", "prereply", "finalize", "think-updater"),
         required=True,
-    )
+)
     # think-updater args (detached child spawned by react_hook.handle_received).
     ap.add_argument("--chat-id")
     ap.add_argument("--message-id")
@@ -3007,10 +2964,9 @@ def main() -> int:
     if args.mode == "think-updater":
         # No stdin payload — args carry everything. Never raises (the worker
         # swallows all errors); detached so it outlives the spawning hook.
-        run_think_updater(
-            args.chat_id or "", args.message_id or "",
+        run_think_updater(args.chat_id or "", args.message_id or "",
             args.effort or "", args.transcript or "",
-        )
+)
         return 0
 
     raw = sys.stdin.read()

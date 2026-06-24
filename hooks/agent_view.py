@@ -570,12 +570,12 @@ def run_updater(session: str) -> None:
 # I/O and turn lookup without importing their full machinery.
 
 def _bot_name() -> str:
-    """Panel-header identity. Precedence: SQUAD_STORE_BOT env override;
+    """Panel-header identity. Precedence: CCDK_BOT env override;
     the bot registry (bot_config.detect_bot resolves co-located bots by
     config/state dir — turns a shared ~/.claude into the bot's real name
     instead of the cwd basename); session cwd basename as the last
     resort."""
-    name = os.environ.get("SQUAD_STORE_BOT")
+    name = os.environ.get("CCDK_BOT")
     if name:
         return name
     try:

@@ -1201,7 +1201,7 @@ def handle_terminal(payload: dict) -> int:
       (suppressed)          — only a content react was sent (react IS the response)
       🖥️ terminal           — Discord-origin but no reply / react sent
 
-    Sliding-🖥️ behavior: in chatty channels (e.g. #fam where the bot lurks
+    Sliding-🖥️ behavior: in chatty channels (e.g. a shared channel where the bot lurks
     while the household talks), every silent turn used to leave a 🖥️ on its
     own message — turning the channel into a wall of monitor emoji. Now we
     keep at most ONE 🖥️ per channel: when a new silent turn lands, remove
