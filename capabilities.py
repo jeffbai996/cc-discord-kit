@@ -100,6 +100,39 @@ def features_for(command: str) -> set[str]:
     return {feat for sub, feat in FEATURE_SIGNATURES.items() if sub in norm}
 
 
+# MCP-server-name → feature. Unlike the hook-based features above, these are
+# detected from a bot's .claude.json mcpServers (where Claude Code loads MCP
+# servers — NOT settings.json). `browser` = interactive computer-use: the bot
+# has the Playwright MCP wired to drive a (logged-in) browser. Add a row to track
+# another MCP-delivered capability across the fleet.
+MCP_FEATURE_SIGNATURES: dict[str, str] = {
+    "playwright": "browser",
+}
+
+
+def _claude_json_path() -> str:
+    """The current bot's .claude.json (the MCP registry Claude Code reads)."""
+    cfg = os.environ.get("CLAUDE_CONFIG_DIR", "").strip()
+    base = cfg if cfg else os.path.expanduser("~/.claude")
+    return os.path.join(base, ".claude.json")
+
+
+def _mcp_features() -> set[str]:
+    """Features implied by the bot's configured MCP servers (.claude.json).
+    Robust to a missing/corrupt file (returns empty — same drift-signal posture
+    as the hook probe)."""
+    path = _claude_json_path()
+    if not os.path.exists(path):
+        return set()
+    try:
+        with open(path, encoding="utf-8") as f:
+            servers = (json.load(f).get("mcpServers") or {})
+    except (OSError, json.JSONDecodeError, ValueError) as e:
+        log.warning("could not parse .claude.json at %s: %s", path, e)
+        return set()
+    return {feat for name, feat in MCP_FEATURE_SIGNATURES.items() if name in servers}
+
+
 def _settings_path() -> str:
     """The current bot's settings.json. $CLAUDE_CONFIG_DIR/settings.json, or the
     default ~/.claude/settings.json when CLAUDE_CONFIG_DIR is unset."""
@@ -165,6 +198,9 @@ def collect_self_capabilities() -> dict:
     for names in hooks.values():
         for name in names:
             features |= features_for(name)
+    # MCP-delivered features (e.g. `browser` from the Playwright MCP) live in
+    # .claude.json, not the hooks block — fold them in too.
+    features |= _mcp_features()
 
     return {
         "bot": bot,

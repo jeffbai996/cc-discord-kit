@@ -144,7 +144,7 @@ The store/server layer originated here; the Claude Code hooks were developed alo
 - `bot_config.py` — single source of truth: reads `agents.yaml` and resolves which agent a given Claude Code session is (by config dir), with per-agent fields (kind, host, home channel, access.json path).
 - `bot_admin.py` — toggle per-channel Discord flags (requireMention / narrate / tool-watcher / allowed) for any agent in the registry; backs the `/bot` slash surface.
 - `bots_doctor.py` — validate every agent in `agents.yaml` against reality (persona files present, hooks wired, unit alive) and report problems.
-- `capabilities.py` — a capability matrix each agent self-reports into, so you can spot drift (one agent missing a hook the others have).
+- `capabilities.py` — a capability matrix each agent self-reports into, so you can spot drift (one agent missing a hook — or an MCP-delivered capability like `browser` (the Playwright computer-use MCP) — the others have). Note: the matrix *tracks* which agents have a capability; it doesn't ship the implementation (e.g. the browser tooling itself lives outside this kit).
 - `new_bot.py` — scaffold a new agent: emits its `settings.json` (the kit's hook set), an `agents.yaml` entry, a launcher, and a presence file.
 - `facts.py` — a tiny key→value store for reusable literals (ports, IDs, paths) agents should look up rather than hallucinate.
 
