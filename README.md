@@ -207,6 +207,7 @@ All env vars optional unless noted.
 | `CCDK_HELPER_DISCORD_TOKEN` | `discord_card.py` | the helper bot's Discord token — cards are posted with it so the helper can edit them in place (cross-bot edits 403). Env or in `~/.config/cc-discord-kit/env`. |
 | `CCDK_ALLOWED_TAPPERS` | `vecgrep_confirm.py` | extra Discord user_ids (comma-separated) allowed to tap choice/veto/todo cards, beyond the owner. Vecgrep write-confirms stay owner-only. |
 | `CCDK_RELAY_CONFIG` / `CCDK_RELAY_SECRET` | `choice_card.py` | relay config + HMAC secret paths. Defaults `~/.config/cc-discord-kit/relay.json` + `relay_secret` (secret auto-generated on first use). |
+| `CCDK_RELAY_CONFIGS` | `choice_card.py` | multi-bot fan-out: `os.pathsep`-separated list of `relay.json` paths, one per bot state dir. Each bot's in-process plugin reads relay config from its OWN dir, so a multi-bot host must write all of them — set this so the helper writes every asking bot's config. Single-bot setups can ignore it (uses `CCDK_RELAY_CONFIG`). |
 | `CCDK_VECGREP_CONFIRM_CHANNEL` | `vecgrep_confirm.py` | the only channel a vecgrep write-confirm tap is honored in (owner's private channel). Fail-closed if unset. |
 | `CCDK_PLUGIN_DIRS` | `hooks/discord_plugin_patch.py` | extra config dirs (comma-separated, relative to `$HOME`) whose plugin copy to patch, for multi-agent hosts. Default: `CLAUDE_CONFIG_DIR` + `~/.claude`. |
 | `CCDK_THINK_SHOW_SEC` | `hooks/narrate.py` | ceiling (seconds) before the thinking indicator shows on a silent turn whose first output hasn't flushed. Default 6. |

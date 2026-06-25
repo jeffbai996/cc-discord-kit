@@ -62,10 +62,27 @@ def _bot_credential() -> str | None:
 # agent's session as a normal prompt. Here we write the shared config (helper id
 # + secret) the patch reads, and sign relay messages with it.
 
-# Where the patched plugin reads relay config.
+# Where the patched plugin reads relay config. Each bot's in-process plugin reads
+# relay.json from its OWN state dir, so in a MULTI-BOT setup the config must
+# physically exist in every asking bot's dir — the helper that posts the signed
+# relay runs in its own env and can't know which bot will ask. Single-bot setups
+# just use CCDK_RELAY_CONFIG (one path); multi-bot setups set CCDK_RELAY_CONFIGS
+# to an os.pathsep-separated list of relay.json paths (one per bot state dir).
+# Writing only one path (the old behavior) left every OTHER bot's plugin with no
+# config → a ⟦vc-relay⟧ tap leaked as visible text and never reached the session.
 RELAY_CONFIG_PATH = os.path.expanduser(
     os.environ.get("CCDK_RELAY_CONFIG",
                    "~/.config/cc-discord-kit/relay.json"))
+
+
+def _relay_config_paths() -> list[str]:
+    """All relay.json paths to write. CCDK_RELAY_CONFIGS (os.pathsep-separated)
+    fans out to every bot state dir in a multi-bot setup; otherwise the single
+    CCDK_RELAY_CONFIG path."""
+    multi = os.environ.get("CCDK_RELAY_CONFIGS", "").strip()
+    if multi:
+        return [os.path.expanduser(p) for p in multi.split(os.pathsep) if p.strip()]
+    return [RELAY_CONFIG_PATH]
 # Persistent secret the helper signs with (must match what the patch reads).
 RELAY_SECRET_PATH = os.path.expanduser(
     os.environ.get("CCDK_RELAY_SECRET",
@@ -105,10 +122,16 @@ def ensure_relay_config() -> None:
         "relay_user": "choice-tap",
         "relay_user_id": _vc._get_owner_id(),  # the pick is the owner's decision
     }
-    os.makedirs(os.path.dirname(RELAY_CONFIG_PATH), exist_ok=True)
-    fd = os.open(RELAY_CONFIG_PATH, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as f:
-        json.dump(cfg, f)
+    blob = json.dumps(cfg)
+    for path in _relay_config_paths():
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w") as f:
+                f.write(blob)
+        except OSError:
+            # One unwritable dir must not stop the rest of the fan-out.
+            continue
 
 
 def sign_relay(chat_id: str, payload: str) -> str:
