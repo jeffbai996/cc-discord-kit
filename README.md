@@ -158,7 +158,9 @@ The store/server layer originated here; the Claude Code hooks were developed alo
 [**Operator**](https://github.com/jeffbai996/operator) is a companion project built on this kit: a live browser/computer-use cockpit where you watch an agent drive a real browser in real time, steer it yourself, or hand it the wheel. The agents are the same subscription-backed Claude/GPT sessions the kit already manages — Operator just adds a watch-and-steer surface in front of them.
 
 ![Operator driving a browser](docs/img/operator-geoguessr.jpeg)
-*Operator's GPT agent reasoning through a live GeoGuessr round — left: the interleaved thinking + action trace (Browsing / Reading / Clicking) with a live status card; right: the actual browser it's driving, streamed frame-by-frame.*
+<sub><i>Operator's GPT agent reasoning through a live GeoGuessr round — left: the interleaved thinking + action trace (Browsing / Reading / Clicking) with a live status card; right: the actual browser it's driving, streamed frame-by-frame.</i></sub>
+
+---
 
 It's its own repo (proprietary, source-visible); this kit is the substrate it runs on.
 
