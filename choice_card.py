@@ -110,20 +110,43 @@ def _relay_secret() -> str:
     return s
 
 
+def _self_id_for_path(path: str) -> str:
+    """Which bot's state dir does this relay.json path live in? Matched
+    against bot_registry()'s access_json parent dir (relay.json lives in the
+    same STATE_DIR). Empty string if no match — that bot's relay.json stays in
+    broadcast mode (accepts any target) until it's in the agents registry."""
+    import bot_config
+    target_dir = os.path.normpath(os.path.dirname(os.path.expanduser(path)))
+    for name, entry in bot_config.bot_registry().items():
+        aj = entry.get("path")
+        if aj and os.path.normpath(os.path.dirname(os.path.expanduser(aj))) == target_dir:
+            return name
+    return ""
+
+
 def ensure_relay_config() -> None:
     """Write relay.json (helper id + secret + the identity the relayed prompt
-    should appear from) where the patched plugin reads it. Idempotent.
+    should appear from, plus THIS bot's own self_id) where the patched plugin
+    reads it. Idempotent.
+
+    self_id is what lets the verifier drop a relay addressed to a DIFFERENT
+    bot instead of delivering it to every bot listening in the channel (the
+    choice-tap over-broadcast fix, 2026-07-01) — derived per-path from
+    bot_registry(), so a bot not yet in the registry falls back to self_id=""
+    (old broadcast-to-all behavior, unchanged).
 
     Fails closed when CCDK_RELAY_HELPER_ID is unset — the config is written with
     an empty helper_id, which the patch treats as no trusted relay source."""
-    cfg = {
-        "helper_id": RELAY_HELPER_ID,
-        "secret": _relay_secret(),
-        "relay_user": "choice-tap",
-        "relay_user_id": _vc._get_owner_id(),  # the pick is the owner's decision
-    }
-    blob = json.dumps(cfg)
+    secret = _relay_secret()
     for path in _relay_config_paths():
+        cfg = {
+            "helper_id": RELAY_HELPER_ID,
+            "secret": secret,
+            "relay_user": "choice-tap",
+            "relay_user_id": _vc._get_owner_id(),  # the pick is the owner's decision
+            "self_id": _self_id_for_path(path),
+        }
+        blob = json.dumps(cfg)
         try:
             os.makedirs(os.path.dirname(path), exist_ok=True)
             fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -134,24 +157,33 @@ def ensure_relay_config() -> None:
             continue
 
 
-def sign_relay(chat_id: str, payload: str) -> str:
+def sign_relay(chat_id: str, target_bot: str, payload: str) -> str:
     """Build the signed relay message the patched plugin will deliver. The HMAC
-    binds chat_id+payload so a marker can't be replayed into another channel."""
+    signs chat_id+target_bot+payload — binds the marker to a channel AND (new,
+    2026-07-01) the specific bot session it's meant for, so a marker can't be
+    replayed into another channel, and isn't honored by every OTHER bot
+    co-present in the same channel (the over-broadcast fix). target_bot=""
+    preserves the old broadcast-to-all behavior for callers that don't know
+    the asker."""
     import hashlib
     import hmac
-    mac = hmac.new(_relay_secret().encode(), f"{chat_id}\n{payload}".encode(),
+    tgt = (target_bot or "").replace(":", "").replace("⟧", "")
+    mac = hmac.new(_relay_secret().encode(), f"{chat_id}\n{tgt}\n{payload}".encode(),
                    hashlib.sha256).hexdigest()
-    return f"⟦vc-relay:{mac}⟧ {payload}"
+    return f"⟦vc-relay:{tgt}:{mac}⟧ {payload}"
 
 
-def deliver_pick(chat_id: str, payload: str, token: str | None = None) -> tuple[bool, str]:
+def deliver_pick(chat_id: str, payload: str, token: str | None = None,
+                  target_bot: str = "") -> tuple[bool, str]:
     """Post the signed relay so the asking agent's session receives `payload`
-    as a prompt. Returns (ok, error)."""
+    as a prompt. `target_bot` (the asker's bot name, e.g. a choice-card
+    record's `asked_by`) is embedded + verified so other bots co-present in
+    the channel don't also fire on the same tap. Returns (ok, error)."""
     ensure_relay_config()
     token = token or _bot_credential()
     if not token:
         return (False, "no bot token")
-    return _vc.post_message(token, str(chat_id), sign_relay(str(chat_id), payload))
+    return _vc.post_message(token, str(chat_id), sign_relay(str(chat_id), target_bot, payload))
 
 
 def _load() -> dict:

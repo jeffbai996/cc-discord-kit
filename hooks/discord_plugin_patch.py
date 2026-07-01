@@ -197,16 +197,23 @@ function tryTrustedRelay(msg: Message): boolean {
     // Require the FULL 64-hex (256-bit) digest — a shorter prefix used to be
     // accepted ({16,64}) and compared only up to its own length, so a 64-bit
     // prefix forgery passed. Now the whole 256-bit HMAC must match.
-    const m = /^\\u27e6vc-relay:([0-9a-f]{64})\\u27e7\\s*([\\s\\S]*)$/.exec(msg.content)
+    const m = /^\\u27e6vc-relay:([^:\\u27e7]*):([0-9a-f]{64})\\u27e7\\s*([\\s\\S]*)$/.exec(msg.content)
     if (!m) return false
-    const [, sig, payload] = m
+    const [, target, sig, payload] = m
     const crypto = require('crypto')
     const want = crypto.createHmac('sha256', cfg.secret)
-      .update(`${msg.channelId}\\n${payload}`).digest('hex')
+      .update(`${msg.channelId}\\n${target}\\n${payload}`).digest('hex')
     // constant-time compare on the FULL digest (both are 64 hex chars)
     const a = Buffer.from(sig, 'utf8')
     const b = Buffer.from(want, 'utf8')
     if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return false
+    // Over-broadcast fix (2026-07-01): a valid HMAC only proves the HELPER
+    // signed this marker for this channel — with N bots co-present in one
+    // channel, every one of them would otherwise deliver the SAME tap. Drop
+    // it here unless it's addressed to THIS bot. Empty target (old-format
+    // marker / unknown asker) or empty self_id (this bot's relay.json isn't
+    // registry-backed yet) falls back to the old broadcast-to-all behavior.
+    if (target && cfg.self_id && target !== cfg.self_id) return false
     mcp.notification({
       method: 'notifications/claude/channel',
       params: {
@@ -248,6 +255,40 @@ RELAY_DELIVERED_PATCHED = """    }).catch((err: unknown) => process.stderr.write
     // (posted separately by the helper) stays as the visible confirmation.
     msg.delete().catch(() => {})
     return true"""
+
+# Fix 4d upgrade anchors (2026-07-01): turn an already-injected relay verifier
+# that only binds channelId+payload into one that ALSO binds a target-bot and
+# drops the relay unless it's addressed to THIS bot (the choice-tap
+# over-broadcast fix). Idempotent — skipped once `const [, target, ...` present.
+RELAY_TARGET_ANCHOR = """    const m = /^\\u27e6vc-relay:([0-9a-f]{64})\\u27e7\\s*([\\s\\S]*)$/.exec(msg.content)
+    if (!m) return false
+    const [, sig, payload] = m
+    const crypto = require('crypto')
+    const want = crypto.createHmac('sha256', cfg.secret)
+      .update(`${msg.channelId}\\n${payload}`).digest('hex')
+    // constant-time compare on the FULL digest (both are 64 hex chars)
+    const a = Buffer.from(sig, 'utf8')
+    const b = Buffer.from(want, 'utf8')
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return false
+    mcp.notification({"""
+
+RELAY_TARGET_PATCHED = """    const m = /^\\u27e6vc-relay:([^:\\u27e7]*):([0-9a-f]{64})\\u27e7\\s*([\\s\\S]*)$/.exec(msg.content)
+    if (!m) return false
+    const [, target, sig, payload] = m
+    const crypto = require('crypto')
+    const want = crypto.createHmac('sha256', cfg.secret)
+      .update(`${msg.channelId}\\n${target}\\n${payload}`).digest('hex')
+    // constant-time compare on the FULL digest (both are 64 hex chars)
+    const a = Buffer.from(sig, 'utf8')
+    const b = Buffer.from(want, 'utf8')
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return false
+    // Over-broadcast fix (2026-07-01): a valid HMAC only proves the HELPER
+    // signed this marker for this channel — with N bots co-present in one
+    // channel, every one would otherwise deliver the SAME tap. Drop it unless
+    // it's addressed to THIS bot. Empty target (old-format marker / unknown
+    // asker) or empty self_id (this bot not in the registry) → old broadcast.
+    if (target && cfg.self_id && target !== cfg.self_id) return false
+    mcp.notification({"""
 
 
 # ─── Fix 6: lone-❌ message interrupts the current turn ───
@@ -367,6 +408,13 @@ def patch_file(path: str) -> list[str]:
             and RELAY_DELIVERED_ANCHOR in txt:
         txt = txt.replace(RELAY_DELIVERED_ANCHOR, RELAY_DELIVERED_PATCHED, 1)
         applied.append("relay-delete-cleanup")
+
+    # Fix 4d: upgrade an already-injected relay verifier to bind + enforce the
+    # target bot (over-broadcast fix). Fires only when the old block is present
+    # and the new target-aware one isn't yet — idempotent.
+    if "const [, target, sig, payload] = m" not in txt and RELAY_TARGET_ANCHOR in txt:
+        txt = txt.replace(RELAY_TARGET_ANCHOR, RELAY_TARGET_PATCHED, 1)
+        applied.append("relay-target-scope")
 
     # Fix 5a: re-inject the pass-through module block if missing.
     if "PASSTHROUGH_SLASH_RE" not in txt and PASSTHROUGH_MOD_ANCHOR in txt:

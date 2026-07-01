@@ -1947,7 +1947,8 @@ async def _handle_choice(payload, rec, idx, bot_tok) -> None:
     #    relay carries an HMAC marker the patched plugin verifies + delivers as a
     #    real prompt, so the agent that asked actually continues with the choice.
     payload_text = f"You chose option {n}: {chosen}"
-    ok, err = choice_card.deliver_pick(str(payload.channel_id), payload_text, token=bot_tok)
+    ok, err = choice_card.deliver_pick(str(payload.channel_id), payload_text, token=bot_tok,
+                                       target_bot=rec.get("asked_by", ""))
     if not ok:
         log.warning("choice relay deliver failed: %s", err)
     relay_ledger.log_event("choice_pick", chat_id=str(payload.channel_id),
@@ -1974,7 +1975,8 @@ async def _handle_choice_cancel(payload, rec, bot_tok) -> None:
     # Tell the asking agent the user declined, so a session awaiting the tap
     # continues (and can handle the cancellation) rather than hanging.
     ok, err = choice_card.deliver_pick(
-        str(payload.channel_id), "(backed out — no choice made)", token=bot_tok)
+        str(payload.channel_id), "(backed out — no choice made)", token=bot_tok,
+        target_bot=rec.get("asked_by", ""))
     if not ok:
         log.warning("choice cancel relay failed: %s", err)
     relay_ledger.log_event("choice_cancel", chat_id=str(payload.channel_id),
@@ -2001,7 +2003,7 @@ async def _handle_choice_type(payload, rec, bot_tok) -> None:
     ok, err = choice_card.deliver_pick(
         str(payload.channel_id),
         "(the user wants to type their own answer instead of picking — wait for "
-        "their next message)", token=bot_tok)
+        "their next message)", token=bot_tok, target_bot=rec.get("asked_by", ""))
     if not ok:
         log.warning("choice type-relay failed: %s", err)
     relay_ledger.log_event("choice_type", chat_id=str(payload.channel_id),
