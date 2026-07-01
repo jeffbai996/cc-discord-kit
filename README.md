@@ -1,7 +1,8 @@
 # cc-discord-kit
 
-> **This repo is a showcase and architecture writeup, not a distributed codebase.**
-> It documents a self-hosted multi-agent system — shared memory + Claude Code sessions surfaced into Discord — that runs privately. The living implementation is developed in a private repo and evolves constantly; keeping a runnable public copy in sync by hand proved to be busywork, so this repo now stands as a **design + demo record** of how the system works. If you want to actually run something like this, the architecture below is the useful part; reach out if a real distribution would be worth standing up.
+> **⚠️ Archived.** This repo is a snapshot of an early self-hosted multi-agent system — shared memory + Claude Code sessions surfaced into Discord. Active development has moved to **[claude-code-discord](https://github.com/jeffbai996/claude-code-discord)**, which extracts and sharpens the best part of this kit — the live Claude-Code-into-Discord observability layer (narration, tool-trace diffs, turn-state, the subagent panel) — into a small, one-command tool without the household-specific plumbing.
+>
+> This repo stays up as a **design + demo record**: the walkthrough below shows what the observability looks like in a real channel, and the architecture notes document how the whole system fit together. The runnable source was removed because it had drifted from the private repo it mirrored; it remains in this repo's git history.
 
 **Give your Claude Code agents a shared memory — and watch them work from Discord.**
 
